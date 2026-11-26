@@ -102,26 +102,51 @@ async function textePdf(buf, progression) {
   return { texte: pages.join("\n"), methode: "pdf" };
 }
 
-async function imagePourOcr(f) {
+/** Image prête pour l'OCR : réduite à 2600 px, pivotée de `rot` degrés, en niveaux de gris contrastés. */
+async function imagePourOcr(f, rot = 0) {
   const url = URL.createObjectURL(f);
   try {
     const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("image illisible")); i.src = url; });
     const max = 2600, sc = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
-    const cv = document.createElement("canvas"); cv.width = Math.round(img.naturalWidth * sc); cv.height = Math.round(img.naturalHeight * sc);
-    const cx = cv.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0, 0, cv.width, cv.height); cx.drawImage(img, 0, 0, cv.width, cv.height);
+    const w = Math.round(img.naturalWidth * sc), h = Math.round(img.naturalHeight * sc);
+    const debout = rot % 180 === 0;
+    const cv = document.createElement("canvas"); cv.width = debout ? w : h; cv.height = debout ? h : w;
+    const cx = cv.getContext("2d", { willReadFrequently: true }); cx.fillStyle = "#fff"; cx.fillRect(0, 0, cv.width, cv.height);
+    cx.translate(cv.width / 2, cv.height / 2); cx.rotate((rot * Math.PI) / 180); cx.drawImage(img, -w / 2, -h / 2, w, h);
+    contraste(cx, cv.width, cv.height);
     return cv;
   } finally { URL.revokeObjectURL(url); }
 }
+/** Niveaux de gris + étirement des niveaux (photo sombre ou délavée). */
+function contraste(cx, w, h) {
+  const d = cx.getImageData(0, 0, w, h), px = d.data, hist = new Uint32Array(256);
+  for (let i = 0; i < px.length; i += 4) { const g = (px[i] * 299 + px[i + 1] * 587 + px[i + 2] * 114) / 1000 | 0; px[i] = g; hist[g]++; }
+  const n = px.length / 4; let lo = 0, hi = 255, c = 0;
+  while (lo < 255 && (c += hist[lo]) < n * 0.01) lo++;
+  c = 0; while (hi > 0 && (c += hist[hi]) < n * 0.01) hi--;
+  const k = hi > lo + 20 ? 255 / (hi - lo) : 1, b = hi > lo + 20 ? lo : 0;
+  for (let i = 0; i < px.length; i += 4) { const v = Math.max(0, Math.min(255, (px[i] - b) * k)); px[i] = px[i + 1] = px[i + 2] = v; }
+  cx.putImageData(d, 0, 0);
+}
 
-async function lireFichier(f, progression) {
+/* Lit un fichier. Pour une photo sans adresse reconnue, on réessaie automatiquement
+   en la pivotant (photo prise de travers ou à l'envers). */
+async function lireFichier(f, progression, rot = 0) {
   const t = typeDe(f);
   if (t === "heic") throw new Error("Format HEIC : réglez l'appareil photo en « Le plus compatible » (JPEG).");
   if (t === "classeur") return { points: JSON.parse(moteur.lire_classeur(new Uint8Array(await f.arrayBuffer()), f.name)), texte: "", methode: "Excel" };
   if (t === "csv") return { points: JSON.parse(moteur.lire_csv(await f.text(), f.name)), texte: "", methode: "CSV" };
-  let texte, methode;
-  if (t === "pdf") ({ texte } = await textePdf(await f.arrayBuffer(), progression), methode = "PDF");
-  else { progression("OCR"); texte = await ocr(await imagePourOcr(f), progression); methode = "OCR"; }
-  return { points: JSON.parse(moteur.analyser_texte(texte, f.name)), texte, methode };
+  if (t === "pdf") { const { texte } = await textePdf(await f.arrayBuffer(), progression); return { points: JSON.parse(moteur.analyser_texte(texte, f.name)), texte, methode: "PDF" }; }
+  let meilleur = null;
+  for (const r of [rot, (rot + 90) % 360, (rot + 270) % 360, (rot + 180) % 360]) {
+    progression(r === rot ? "OCR" : "OCR, essai en tournant la photo");
+    const texte = await ocr(await imagePourOcr(f, r), progression);
+    const points = JSON.parse(moteur.analyser_texte(texte, f.name));
+    const res = { points, texte, methode: r === rot ? "OCR" : "OCR, photo redressée", rot: r };
+    if (!meilleur || points.length > meilleur.points.length) meilleur = res;
+    if (points.length) break;
+  }
+  return meilleur;
 }
 
 /* ---------------- géocodage (BAN) ---------------- */
@@ -343,7 +368,7 @@ const BD = (() => {
   }));
   const tx = async (mode, fn) => { const db = await ouvrir(); return new Promise((ok, ko) => { const t = db.transaction("f", mode); const r = fn(t.objectStore("f")); t.oncomplete = () => ok(r && r.result); t.onerror = () => ko(t.error); }); };
   return {
-    mettre: (x) => tx("readwrite", (s) => s.put({ id: x.id, f: x.f, nom: x.f.name, st: x.st, res: x.res, err: x.err || null, n: x.n })).catch(() => {}),
+    mettre: (x) => tx("readwrite", (s) => s.put({ id: x.id, f: x.f, nom: x.f.name, st: x.st, res: x.res, err: x.err || null, n: x.n, rot: x.rot || 0, pids: x.pids || [] })).catch(() => {}),
     retirer: (id) => tx("readwrite", (s) => s.delete(id)).catch(() => {}),
     vider: () => tx("readwrite", (s) => s.clear()).catch(() => {}),
     tout: () => tx("readonly", (s) => s.getAll()).catch(() => []),
@@ -359,7 +384,7 @@ async function restaurerFichiers() {
   l.sort((a, b) => a.n - b.n);
   for (const r of l) {
     const f = r.f instanceof File ? r.f : new File([r.f], r.nom || "fichier", { type: r.f?.type || "" });
-    fichiers.push({ id: r.id, f, st: r.st === "lecture" ? "attente" : r.st, res: r.res, err: r.err, msg: "", n: r.n });
+    fichiers.push({ id: r.id, f, st: r.st === "lecture" ? "attente" : r.st, res: r.res, err: r.err, msg: "", n: r.n, rot: r.rot || 0, pids: r.pids || [] });
     ordre = Math.max(ordre, (r.n || 0) + 1);
   }
   renderFiles();
@@ -386,19 +411,27 @@ document.addEventListener("visibilitychange", () => {
   lireTout();
 });
 
+function vignette(x) {
+  if (!x.url) x.url = URL.createObjectURL(x.f);
+  const t = typeDe(x.f);
+  if (t === "image") return `<button class="vg" data-voir aria-label="Voir en plein écran"><img src="${x.url}" alt="" style="transform:rotate(${x.rot || 0}deg)"></button>`;
+  if (t === "pdf") return `<button class="vg doc" data-voir aria-label="Voir en plein écran">PDF</button>`;
+  return `<span class="vg doc">${t === "csv" ? "CSV" : "XLS"}</span>`;
+}
 function renderFiles() {
   const ul = $("files"); ul.innerHTML = "";
   for (const x of fichiers) {
     const li = document.createElement("li");
     const cls = { attente: "p-wait", lecture: "p-run", lu: "p-ok", erreur: "p-bad" }[x.st];
     const msg = x.st === "lecture" ? x.msg || "lecture" : x.res ? `${x.res.points.length} point(s) · ${x.res.methode}` : x.st === "erreur" ? "erreur" : "en attente";
-    li.innerHTML = `<span class="nm"></span><span class="pill ${cls}">${esc(msg)}</span><button class="ghost" aria-label="Retirer">×</button>`;
+    li.innerHTML = `${vignette(x)}<span class="nm"></span><span class="pill ${cls}">${esc(msg)}</span><button class="ghost" data-suppr aria-label="Retirer">×</button>`;
     li.querySelector(".nm").textContent = x.f.name;
-    li.querySelector("button").onclick = () => { fichiers = fichiers.filter((y) => y !== x); BD.retirer(x.id); renderFiles(); };
+    li.querySelector("[data-suppr]").onclick = () => { retirerPoints(x); fichiers = fichiers.filter((y) => y !== x); BD.retirer(x.id); if (x.url) URL.revokeObjectURL(x.url); renderFiles(); };
+    const v = li.querySelector("[data-voir]"); if (v) v.onclick = () => voir(x);
     if (x.res || x.err) {
       const d = document.createElement("details"); d.className = "txt";
       d.innerHTML = `<summary class="hint"></summary><pre></pre>`;
-      d.querySelector("summary").textContent = x.err || (x.res.points.length ? "Voir le texte lu" : "Aucune adresse reconnue : voir le texte lu");
+      d.querySelector("summary").textContent = x.err || (x.res.points.length ? "Voir le texte lu" : "Aucune adresse reconnue : touchez l'image pour la vérifier, ou voir le texte lu");
       d.querySelector("pre").textContent = x.res?.texte || "(pas de texte)";
       li.appendChild(d);
     }
@@ -406,6 +439,61 @@ function renderFiles() {
   }
   $("lire").disabled = !pret || enLecture || !fichiers.some((x) => x.st === "attente" || x.st === "erreur");
 }
+function retirerPoints(x) {
+  if (!x.pids || !x.pids.length) return;
+  const ids = new Set(x.pids); S.points = S.points.filter((p) => !ids.has(p.id)); x.pids = []; S.tournee = null; save(); renderPoints();
+}
+
+/* Visionneuse plein écran : photo (zoom, rotation) ou pages du PDF. */
+let vue = null, zoom = 1;
+async function voir(x) {
+  vue = x; zoom = 1;
+  const t = typeDe(x.f), box = $("vueImg");
+  $("vueNom").textContent = x.f.name;
+  $("vuePivot").hidden = t !== "image";
+  box.innerHTML = "";
+  if (t === "image") {
+    await afficherImage();
+  } else {
+    box.innerHTML = `<p class="hint" style="color:#ccc">Affichage du PDF…</p>`;
+    try {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("vendor/pdfjs/pdf.worker.min.js", location.href).href;
+      const doc = await pdfjsLib.getDocument({ data: await x.f.arrayBuffer(), isEvalSupported: false }).promise;
+      box.innerHTML = "";
+      for (let i = 1; i <= Math.min(doc.numPages, 20); i++) {
+        const page = await doc.getPage(i), vp = page.getViewport({ scale: 2 });
+        const cv = document.createElement("canvas"); cv.width = vp.width; cv.height = vp.height;
+        await page.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise;
+        box.appendChild(cv);
+      }
+      appliquerVue();
+    } catch (e) { box.innerHTML = `<p class="hint" style="color:#ccc">PDF illisible : ${esc(e.message)}</p>`; }
+  }
+  $("vue").showModal();
+}
+async function afficherImage() {
+  const x = vue, rot = x.rot || 0;
+  const img = await new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ko(new Error("image illisible")); i.src = x.url || (x.url = URL.createObjectURL(x.f)); });
+  const w = img.naturalWidth, h = img.naturalHeight, debout = rot % 180 === 0;
+  const cv = document.createElement("canvas"); cv.width = debout ? w : h; cv.height = debout ? h : w;
+  const cx = cv.getContext("2d"); cx.translate(cv.width / 2, cv.height / 2); cx.rotate((rot * Math.PI) / 180); cx.drawImage(img, -w / 2, -h / 2);
+  $("vueImg").innerHTML = ""; $("vueImg").appendChild(cv); appliquerVue();
+}
+function appliquerVue() {
+  const box = $("vueImg");
+  box.querySelectorAll("canvas").forEach((el) => { el.style.width = (100 * zoom) + "%"; });
+  $("vueZoom").textContent = Math.round(zoom * 100) + " %";
+}
+$("vuePlus").onclick = () => { zoom = Math.min(5, zoom * 1.5); appliquerVue(); };
+$("vueMoins").onclick = () => { zoom = Math.max(1, zoom / 1.5); appliquerVue(); };
+$("vueFermer").onclick = () => $("vue").close();
+$("vuePivot").onclick = () => {
+  // Pivote d'un quart de tour et relit la photo.
+  const x = vue; if (!x) return;
+  x.rot = ((x.rot || 0) + 90) % 360; afficherImage();
+  retirerPoints(x); x.st = "attente"; x.res = null; x.err = null; BD.mettre(x); renderFiles(); lireTout();
+};
+
 const drop = $("drop");
 $("choisir").onclick = () => $("fIn").click();
 $("photo").onclick = () => $("pIn").click();
@@ -434,9 +522,11 @@ async function lireTout(avecErreurs) {
         x.st = "lecture"; x.err = null; renderFiles(); statut("lireSt", `Lecture de ${x.f.name}… (${reste} restant${reste > 1 ? "s" : ""})`);
         BD.mettre(x);
         try {
-          x.res = await lireFichier(x.f, (m) => { x.msg = m; renderFiles(); });
+          x.res = await lireFichier(x.f, (m) => { x.msg = m; renderFiles(); }, x.rot || 0);
+          if (x.res.rot !== undefined) x.rot = x.res.rot;
           x.st = x.res.points.length ? "lu" : "erreur";
-          for (const p of x.res.points) { p.id = uid(); S.points.push(p); n++; }
+          x.pids = [];
+          for (const p of x.res.points) { p.id = uid(); x.pids.push(p.id); S.points.push(p); n++; }
         } catch (e) { x.st = "erreur"; x.err = e.message || String(e); }
         BD.mettre(x); save(); renderFiles(); renderPoints();
       }
