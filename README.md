@@ -45,4 +45,41 @@ Ce test simule le service d'adresses en local : il n'a pas besoin d'Internet.
 
 ## Autres fichiers
 
+- `crates/` : la version Rust (moteur + service web), voir plus bas.
 - `web/tournee-pav.html` : la première version sous forme de page web (Claude Artifact). Elle fait la même chose avec une carte, mais estime les positions GPS sans la Base Adresse Nationale.
+
+## Version Rust : service web + interface
+
+```
+crates/tournee-core    moteur (lecture des fiches, adresses BAN, calcul de tournée, Excel)
+crates/tournee-server  service web (axum) qui sert l'interface et l'API
+```
+
+Le moteur ne dépend pas de l'interface. Le même `tournee-core` servira à l'application Android (Tauri), avec la même interface web.
+
+| Étape | Bibliothèque open source | IA / clé |
+|---|---|---|
+| Texte des PDF | Poppler `pdftotext`, sinon `pdf-extract` | non |
+| Photos et PDF scannés | OCR Tesseract (français) | non |
+| Repérage des adresses | règles (types de voie, code postal, flux, bacs, GPS) | non |
+| Adresse → GPS | Base Adresse Nationale | non |
+| Ordre de passage | `vrp-pragmatic` (solveur de tournées, Apache 2.0) | non |
+| Excel | `rust_xlsxwriter` | non |
+
+### Lancer en local
+
+```bash
+sudo apt install tesseract-ocr tesseract-ocr-fra poppler-utils   # ou brew install tesseract tesseract-lang poppler
+cargo run --release -p tournee-server
+# puis ouvrir http://localhost:8080 (depuis le téléphone : http://IP-de-l-ordinateur:8080)
+```
+
+### Déployer
+
+Le `Dockerfile` contient tout (Rust, Tesseract, Poppler). `render.yaml` permet de le déployer sur Render en offre gratuite.
+
+### Tests
+
+```bash
+cargo test --workspace
+```

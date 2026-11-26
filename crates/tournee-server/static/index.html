@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Tournée PAV</title>
+<meta name="theme-color" content="#0f6b4f">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icone.svg">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{
+  --bg:#f3f5f2;--surface:#fff;--ink:#17251f;--muted:#5b6b63;--line:#d5ddd8;
+  --accent:#0f6b4f;--accent-ink:#fff;--signal:#f2a900;--signal-ink:#2a1f00;
+  --warn:#b45309;--warn-bg:#fff4e0;--bad:#b42318;--bad-bg:#fdecea;--ok:#127a4a;--ok-bg:#e5f5ec;
+  --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;--f-body:"Barlow",system-ui,sans-serif;--f-mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0f1714;--surface:#16211c;--ink:#e4ece7;--muted:#9aaba2;--line:#2a3a33;
+  --accent:#3fbf8f;--accent-ink:#06140e;--signal:#f5b82e;--signal-ink:#241a00;
+  --warn:#f0a44b;--warn-bg:#33240f;--bad:#f07b6e;--bad-bg:#3a1714;--ok:#5fd39a;--ok-bg:#12301f;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f-body)}
+.wrap{max-width:1180px;margin:0 auto;padding:16px max(16px,env(safe-area-inset-right)) 60px max(16px,env(safe-area-inset-left));display:flex;flex-direction:column;gap:16px}
+header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:8px;border-bottom:3px solid var(--ink);padding-bottom:10px}
+h1{font:700 2.2rem/1 var(--f-display);margin:0;text-transform:uppercase}
+h1 span{background:var(--signal);color:var(--signal-ink);font-size:.5em;padding:2px 8px;vertical-align:middle;margin-left:6px;letter-spacing:.06em}
+.lead{margin:4px 0 0;color:var(--muted);max-width:62ch}
+h2{font:600 1.35rem var(--f-display);text-transform:uppercase;letter-spacing:.03em;margin:0;display:flex;gap:10px;align-items:center}
+h2 .n{font:500 .8rem var(--f-mono);background:var(--ink);color:var(--bg);width:26px;height:26px;border-radius:50%;display:inline-grid;place-items:center}
+section{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.grow{flex:1 1 240px;min-width:0}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+input[type=text],input[type=date]{font:inherit;font-size:16px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px 10px;width:100%}
+button,.btn{font:600 15px var(--f-body);border-radius:4px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:9px 14px;cursor:pointer;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+button.primary,.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button.signal{background:var(--signal);color:var(--signal-ink);border-color:var(--signal)}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.ghost{background:transparent;border-color:transparent;color:var(--muted);padding:4px 8px}
+:focus-visible{outline:3px solid var(--signal);outline-offset:2px}
+.hint{font-size:.85rem;color:var(--muted);margin:0}
+.status{font:.82rem var(--f-mono);color:var(--muted)}
+.status.err{color:var(--bad)}
+.drop{border:2px dashed var(--line);border-radius:6px;padding:22px 14px;text-align:center;background:var(--bg);display:flex;flex-direction:column;gap:6px;align-items:center}
+.drop.over{border-color:var(--accent);background:var(--ok-bg)}
+.drop strong{font:600 1.25rem var(--f-display);text-transform:uppercase}
+.files{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.files li{display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:4px;padding:6px 8px;font-size:.88rem;flex-wrap:wrap}
+.files .nm{flex:1 1 140px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pill{font:.72rem var(--f-mono);padding:1px 7px;border-radius:999px;white-space:nowrap}
+.p-wait{background:var(--bg);color:var(--muted);border:1px solid var(--line)}.p-run{background:var(--warn-bg);color:var(--warn)}.p-ok{background:var(--ok-bg);color:var(--ok)}.p-bad{background:var(--bad-bg);color:var(--bad)}
+details.txt{width:100%}details.txt pre{white-space:pre-wrap;font:.75rem var(--f-mono);background:var(--bg);padding:8px;max-height:200px;overflow:auto;margin:4px 0 0}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:4px}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th{font:600 .82rem var(--f-display);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;background:var(--bg);padding:8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:5px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+td input{padding:5px 6px!important;font-size:14px!important}
+tr.off td{opacity:.45}
+.prec{font:.72rem var(--f-mono);padding:1px 6px;border-radius:3px;white-space:nowrap}
+.pr-ok{background:var(--ok-bg);color:var(--ok)}.pr-moy{background:var(--warn-bg);color:var(--warn)}.pr-ko{background:var(--bad-bg);color:var(--bad)}
+.result{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px}
+@media (max-width:860px){.result{grid-template-columns:minmax(0,1fr)}}
+#map{height:420px;border-radius:4px;border:1px solid var(--line);z-index:0}
+.stats{display:flex;flex-wrap:wrap;gap:22px}
+.stat b{display:block;font:700 1.9rem/1 var(--f-display)}
+.stat span{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+ol.route{list-style:none;margin:0;padding:0}
+ol.route li{display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.k{font:500 .8rem var(--f-mono);background:var(--ink);color:var(--bg);border-radius:50%;width:28px;height:28px;display:grid;place-items:center}
+li.depot .k{background:var(--signal);color:var(--signal-ink);border-radius:3px}
+ol.route small{display:block;color:var(--muted)}
+.links{display:flex;flex-wrap:wrap;gap:8px}
+.mk{background:var(--ink);color:#fff;border:2px solid #fff;border-radius:50%;width:26px!important;height:26px!important;display:grid!important;place-items:center;font:500 12px var(--f-mono);box-shadow:0 1px 3px #0006}
+.mk.weak{border-color:#b42318}
+.mk.dep{background:#f2a900;color:#2a1f00;border-radius:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><h1>Tournée PAV <span>Rotation bacs</span></h1>
+    <p class="lead">Déposez les fiches de rotation : le service lit les adresses, les place avec la Base Adresse Nationale et calcule l'ordre de passage sans allers-retours.</p></div>
+    <button id="exemple" class="ghost">Charger un exemple</button>
+  </header>
+
+  <section>
+    <h2><span class="n">1</span>Départ et retour du camion</h2>
+    <div class="row">
+      <label class="f grow">Adresse du dépôt<input type="text" id="depotAdr" placeholder="ex. 12 rue de l'Industrie, 35000 Rennes"></label>
+      <label class="f" style="flex:0 1 200px">GPS (facultatif)<input type="text" id="depotGps" placeholder="48.1113, -1.6800"></label>
+      <label class="f" style="flex:0 1 170px">Date<input type="date" id="date"></label>
+    </div>
+    <p class="hint">Mémorisé sur cet appareil. Le GPS, s'il est rempli, passe avant l'adresse.</p>
+  </section>
+
+  <section>
+    <h2><span class="n">2</span>Fiches de rotation</h2>
+    <div class="drop" id="drop">
+      <strong>Déposez les fiches ici</strong>
+      <span class="hint">PDF ou photos, plusieurs à la fois</span>
+      <div class="row" style="justify-content:center">
+        <button id="choisir">Choisir des fichiers</button>
+        <button id="photo">Prendre une photo</button>
+      </div>
+      <input type="file" id="fIn" accept="image/*,application/pdf" multiple hidden>
+      <input type="file" id="pIn" accept="image/*" capture="environment" hidden>
+    </div>
+    <ul class="files" id="files"></ul>
+    <div class="row"><button class="primary" id="lire" disabled>Lire les fiches</button><span class="status" id="lireSt"></span></div>
+  </section>
+
+  <section>
+    <h2><span class="n">3</span>Points de collecte</h2>
+    <p class="hint">Vérifiez ce qui a été lu. Corrigez une adresse (elle sera replacée), collez des coordonnées GPS, ou décochez un point.</p>
+    <div class="tbl"><table>
+      <thead><tr><th>Faire</th><th>Adresse</th><th>Code postal</th><th>Commune</th><th>Flux</th><th>Bacs</th><th>Remarque</th><th>Position</th><th></th></tr></thead>
+      <tbody id="pts"></tbody>
+    </table></div>
+    <div class="row">
+      <button id="ajout">Ajouter un point</button>
+      <button id="placer">Placer les adresses</button>
+      <button class="ghost" id="vider">Tout effacer</button>
+      <span class="status" id="placerSt"></span>
+    </div>
+  </section>
+
+  <section>
+    <div class="row" style="justify-content:space-between"><h2><span class="n">4</span>Tournée</h2><button class="signal" id="calc">Calculer la tournée</button></div>
+    <span class="status" id="calcSt"></span>
+    <div class="stats" id="stats"></div>
+    <div class="result">
+      <div style="display:flex;flex-direction:column;gap:10px;min-width:0">
+        <div id="map"></div>
+        <div class="links" id="liens"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;min-width:0">
+        <div class="row"><button class="primary" id="xlsx" disabled>Télécharger l'Excel</button></div>
+        <ol class="route" id="route"><li class="hint" style="display:block">Calculez la tournée pour obtenir l'ordre de passage.</li></ol>
+      </div>
+    </div>
+  </section>
+  <p class="hint">Distances estimées à vol d'oiseau × 1,3. Ordre de passage calculé par le solveur open source vrp-pragmatic. Adresses : Base Adresse Nationale.</p>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const KEY="tournee-pav-web-v1";
+const uid=()=>Math.random().toString(36).slice(2,9);
+let S={depot:{adresse:"",lat:null,lon:null},date:"",points:[],tournee:null};
+let fichiers=[];
+
+function load(){try{const s=JSON.parse(localStorage.getItem(KEY)||"null");if(s)S=Object.assign(S,s)}catch(e){}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+function parseGps(s){const m=String(s||"").match(/(-?\d{1,2}[.,]\d+)\s*[,; ]\s*(-?\d{1,3}[.,]\d+)/);if(!m)return null;return {lat:+m[1].replace(",","."),lon:+m[2].replace(",",".")}}
+const pos=p=>p&&typeof p.lat==="number"&&typeof p.lon==="number";
+const fmt=p=>pos(p)?p.lat.toFixed(5)+", "+p.lon.toFixed(5):"";
+async function api(path,body){
+  const r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({erreur:"réponse illisible du serveur"}));
+  if(!r.ok)throw new Error(j.erreur||("erreur "+r.status));return j;
+}
+function depotPourApi(){const g=parseGps($("depotGps").value);return g?{adresse:S.depot.adresse||fmt(g),lat:g.lat,lon:g.lon}:{adresse:S.depot.adresse,lat:S.depot.lat,lon:S.depot.lon}}
+
+/* ---- dépôt ---- */
+function fillDepot(){$("depotAdr").value=S.depot.adresse||"";$("date").value=S.date||"";$("depotGps").value=S.depot.manuel?fmt(S.depot):""}
+$("depotAdr").onchange=e=>{S.depot={adresse:e.target.value.trim(),lat:null,lon:null};S.tournee=null;save();renderRoute()};
+$("depotGps").onchange=e=>{const g=parseGps(e.target.value);if(g){S.depot.lat=g.lat;S.depot.lon=g.lon;S.depot.manuel=true}else{S.depot.lat=S.depot.lon=null;S.depot.manuel=false}S.tournee=null;save()};
+$("date").onchange=e=>{S.date=e.target.value;save()};
+
+/* ---- fichiers ---- */
+function addFiles(list){for(const f of list)fichiers.push({f,st:"attente",lecture:null});renderFiles()}
+function renderFiles(){
+  const ul=$("files");ul.innerHTML="";
+  for(const x of fichiers){
+    const li=document.createElement("li");
+    const cls={attente:"p-wait",lecture:"p-run",lu:"p-ok",erreur:"p-bad"}[x.st];
+    const msg=x.lecture?(x.lecture.points.length+" point(s) · "+(x.lecture.methode==="ocr"?"OCR":x.lecture.methode==="pdf-texte"?"texte PDF":"échec")):x.st;
+    li.innerHTML=`<span class="nm"></span><span class="pill ${cls}">${esc(msg)}</span><button class="ghost" aria-label="Retirer">×</button>`;
+    li.querySelector(".nm").textContent=x.f.name;
+    li.querySelector("button").onclick=()=>{fichiers=fichiers.filter(y=>y!==x);renderFiles()};
+    if(x.lecture){
+      const d=document.createElement("details");d.className="txt";
+      d.innerHTML=`<summary class="hint">${esc(x.lecture.avertissement||"Voir le texte lu")}</summary><pre></pre>`;
+      d.querySelector("pre").textContent=x.lecture.texte||"(vide)";li.appendChild(d);
+    }
+    ul.appendChild(li);
+  }
+  $("lire").disabled=!fichiers.some(x=>x.st==="attente"||x.st==="erreur");
+}
+const drop=$("drop");
+$("choisir").onclick=()=>$("fIn").click();$("photo").onclick=()=>$("pIn").click();
+$("fIn").onchange=e=>{addFiles(e.target.files);e.target.value=""};$("pIn").onchange=e=>{addFiles(e.target.files);e.target.value=""};
+["dragenter","dragover"].forEach(v=>drop.addEventListener(v,e=>{e.preventDefault();drop.classList.add("over")}));
+["dragleave","drop"].forEach(v=>drop.addEventListener(v,e=>{e.preventDefault();drop.classList.remove("over")}));
+drop.addEventListener("drop",e=>addFiles(e.dataTransfer.files));
+
+$("lire").onclick=async()=>{
+  $("lire").disabled=true;let n=0;
+  for(const x of fichiers.filter(y=>y.st==="attente"||y.st==="erreur")){
+    x.st="lecture";renderFiles();$("lireSt").textContent="Lecture de "+x.f.name+"…";$("lireSt").className="status";
+    try{
+      const fd=new FormData();fd.append("fiche",x.f,x.f.name);
+      const r=await fetch("/api/lire",{method:"POST",body:fd});const j=await r.json();
+      if(!r.ok)throw new Error(j.erreur||"erreur");
+      x.lecture=j[0];x.st=x.lecture.points.length?"lu":"erreur";
+      for(const p of x.lecture.points){p.id=uid();S.points.push(p);n++}
+    }catch(e){x.st="erreur";x.lecture={points:[],methode:"echec",avertissement:e.message,texte:""}}
+    renderFiles();save();renderPoints();
+  }
+  $("lireSt").textContent=n+" point(s) trouvé(s).";
+  if(n)await placer();
+};
+
+/* ---- points ---- */
+function precision(p){
+  if(p.origine==="fiche")return ["fiche","pr-ok"];if(p.origine==="manuel")return ["manuel","pr-ok"];
+  if(p.origine==="introuvable")return ["introuvable","pr-ko"];
+  if(typeof p.score==="number")return [Math.round(p.score*100)+" %",p.score>=.6?"pr-ok":p.score>=.4?"pr-moy":"pr-ko"];
+  return ["à placer","pr-moy"];
+}
+function renderPoints(){
+  const tb=$("pts");tb.innerHTML="";
+  if(!S.points.length){tb.innerHTML=`<tr><td colspan="9" class="hint" style="padding:14px">Aucun point. Déposez des fiches à l'étape 2 ou ajoutez un point à la main.</td></tr>`;return}
+  for(const p of S.points){
+    const tr=document.createElement("tr");if(p.actif===false)tr.className="off";
+    const [pt,pc]=precision(p);
+    tr.innerHTML=`<td><input type="checkbox" data-k="actif" ${p.actif!==false?"checked":""}></td>
+    <td><input type="text" data-k="adresse" value="${esc(p.adresse)}" style="min-width:22ch"></td>
+    <td><input type="text" data-k="code_postal" value="${esc(p.code_postal)}" style="width:7ch"></td>
+    <td><input type="text" data-k="commune" value="${esc(p.commune)}" style="min-width:12ch"></td>
+    <td><input type="text" data-k="flux" value="${esc(p.flux)}" style="min-width:10ch"></td>
+    <td><input type="text" data-k="nb_bacs" value="${esc(p.nb_bacs??"")}" style="width:5ch"></td>
+    <td><input type="text" data-k="remarque" value="${esc(p.remarque)}" style="min-width:16ch"></td>
+    <td><input type="text" data-k="gps" value="${esc(fmt(p))}" placeholder="lat, lon" style="width:19ch"><div><span class="prec ${pc}" title="${esc(p.label)}">${esc(pt)}</span></div></td>
+    <td><button class="ghost" aria-label="Supprimer">×</button></td>`;
+    tr.querySelectorAll("input").forEach(i=>i.onchange=()=>{
+      const k=i.dataset.k;
+      if(k==="actif")p.actif=i.checked;
+      else if(k==="gps"){const g=parseGps(i.value);if(g){p.lat=g.lat;p.lon=g.lon;p.origine="manuel"}else{p.lat=p.lon=null;p.origine=""}}
+      else if(k==="nb_bacs"){const v=parseInt(i.value,10);p.nb_bacs=isNaN(v)?null:v}
+      else{p[k]=i.value;if(["adresse","code_postal","commune"].includes(k)&&p.origine!=="manuel"&&p.origine!=="fiche"){p.lat=p.lon=null;p.origine="";p.score=null;p.label=""}}
+      S.tournee=null;save();renderPoints();renderRoute();
+    });
+    tr.querySelector("button").onclick=()=>{S.points=S.points.filter(x=>x!==p);S.tournee=null;save();renderPoints();renderRoute()};
+    tb.appendChild(tr);
+  }
+}
+async function placer(){
+  $("placerSt").className="status";$("placerSt").textContent="Placement des adresses…";
+  try{
+    const r=await api("/api/placer",{depot:depotPourApi(),points:S.points});
+    if(!S.depot.manuel&&pos(r.depot)){S.depot.lat=r.depot.lat;S.depot.lon=r.depot.lon}
+    S.points=r.points;save();renderPoints();
+    if(r.erreur){$("placerSt").className="status err";$("placerSt").textContent=r.erreur}
+    else{const faibles=S.points.filter(p=>p.origine==="ban"&&p.score<.6).length,ko=S.points.filter(p=>!pos(p)).length;
+      $("placerSt").textContent=`${r.places} adresse(s) placée(s).`+(faibles?` ${faibles} peu fiable(s).`:"")+(ko?` ${ko} sans position.`:"")}
+  }catch(e){$("placerSt").className="status err";$("placerSt").textContent=e.message}
+}
+$("placer").onclick=placer;
+$("ajout").onclick=()=>{S.points.push({id:uid(),adresse:"",code_postal:"",commune:"",flux:"",nb_bacs:null,remarque:"",lat:null,lon:null,actif:true,origine:"",source:"manuel"});save();renderPoints()};
+let arm=false;$("vider").onclick=()=>{if(!arm){arm=true;$("vider").textContent="Confirmer";setTimeout(()=>{arm=false;$("vider").textContent="Tout effacer"},4000);return}
+  arm=false;$("vider").textContent="Tout effacer";S.points=[];S.tournee=null;fichiers=[];save();renderFiles();renderPoints();renderRoute()};
+
+/* ---- tournée ---- */
+let map,layer;
+function initMap(){map=L.map("map").setView([46.6,2.4],5);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);layer=L.layerGroup().addTo(map)}
+function icon(txt,cls){return L.divIcon({className:"",html:`<div class="mk ${cls||""}">${esc(txt)}</div>`,iconSize:[26,26],iconAnchor:[13,13]})}
+async function calculer(){
+  $("calcSt").className="status";$("calcSt").textContent="Calcul…";
+  try{
+    if(S.points.some(p=>p.actif!==false&&!pos(p)&&p.origine!=="introuvable")||!pos(depotPourApi()))await placer();
+    const d=depotPourApi();if(!pos(d))throw new Error("Le dépôt n'a pas de position : vérifiez son adresse ou collez ses coordonnées GPS.");
+    S.tournee=await api("/api/tournee",{depot:d,points:S.points,date:S.date});
+    $("calcSt").textContent=S.tournee.non_places.length?S.tournee.non_places.length+" point(s) sans position laissé(s) de côté.":"";
+    save();renderRoute();
+  }catch(e){$("calcSt").className="status err";$("calcSt").textContent=e.message}
+}
+$("calc").onclick=calculer;
+async function deplacer(i,dir){
+  const t=S.tournee;const a=[...t.arrets];const j=i+dir;if(j<0||j>=a.length)return;[a[i],a[j]]=[a[j],a[i]];
+  try{S.tournee=await api("/api/recalculer",{depot:t.depot,arrets:a,non_places:t.non_places,date:S.date});save();renderRoute()}catch(e){$("calcSt").textContent=e.message}
+}
+function renderRoute(){
+  const t=S.tournee;const ol=$("route");layer&&layer.clearLayers();$("liens").innerHTML="";$("xlsx").disabled=!t;
+  if(!t){$("stats").innerHTML="";ol.innerHTML=`<li class="hint" style="display:block">Calculez la tournée pour obtenir l'ordre de passage.</li>`;return}
+  const bacs=t.arrets.reduce((s,p)=>s+(p.nb_bacs||0),0);
+  $("stats").innerHTML=`<div class="stat"><b>${t.arrets.length}</b><span>arrêts</span></div><div class="stat"><b>${bacs||"–"}</b><span>bacs</span></div><div class="stat"><b>≈ ${t.total_km.toFixed(1).replace(".",",")} km</b><span>distance estimée</span></div>`;
+  ol.innerHTML="";
+  const li=(k,titre,sous,cls)=>{const e=document.createElement("li");if(cls)e.className=cls;e.innerHTML=`<span class="k">${esc(k)}</span><span><b></b><small class="a"></small><small class="b"></small></span><span class="mv"></span>`;e.querySelector("b").textContent=titre;e.querySelector(".a").textContent=sous[0]||"";e.querySelector(".b").textContent=sous[1]||"";ol.appendChild(e);return e};
+  li("D",t.depot.adresse||"Dépôt",["Départ"],"depot");
+  t.arrets.forEach((p,i)=>{
+    const e=li(i+1,[p.adresse,p.code_postal,p.commune].filter(Boolean).join(", "),[[p.flux,p.nb_bacs?p.nb_bacs+" bac(s)":"",p.reference].filter(Boolean).join(" · "),[p.remarque,"+"+t.troncons_km[i].toFixed(1).replace(".",",")+" km"].filter(Boolean).join(" · ")]);
+    e.querySelector(".mv").innerHTML=`<button class="ghost" ${i===0?"disabled":""} aria-label="Monter">▲</button><button class="ghost" ${i===t.arrets.length-1?"disabled":""} aria-label="Descendre">▼</button>`;
+    const [u,d]=e.querySelectorAll(".mv button");u.onclick=()=>deplacer(i,-1);d.onclick=()=>deplacer(i,1);
+  });
+  li("D",t.depot.adresse||"Dépôt",["Retour · +"+t.troncons_km[t.troncons_km.length-1].toFixed(1).replace(".",",")+" km"],"depot");
+  for(const [lib,url] of t.liens){const a=document.createElement("a");a.className="btn primary";a.href=url;a.target="_blank";a.rel="noopener";a.textContent="Google Maps : "+lib;$("liens").appendChild(a)}
+  if(map){
+    const seq=[[t.depot.lat,t.depot.lon],...t.arrets.map(p=>[p.lat,p.lon]),[t.depot.lat,t.depot.lon]];
+    L.polyline(seq,{color:"#0f6b4f",weight:4,opacity:.85}).addTo(layer);
+    t.arrets.forEach((p,i)=>L.marker([p.lat,p.lon],{icon:icon(i+1,(p.origine==="ban"&&p.score<.6)?"weak":"")}).bindPopup(esc([p.adresse,p.commune].filter(Boolean).join(", "))).addTo(layer));
+    L.marker([t.depot.lat,t.depot.lon],{icon:icon("D","dep")}).bindPopup("Dépôt").addTo(layer);
+    map.fitBounds(seq,{padding:[24,24]});
+  }
+}
+$("xlsx").onclick=async()=>{
+  try{const r=await fetch("/api/excel",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(S.tournee)});
+    if(!r.ok)throw new Error("Excel indisponible");const b=await r.blob();
+    const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=`tournee-pav-${S.date||"export"}.xlsx`;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000);
+  }catch(e){$("calcSt").textContent=e.message}
+};
+$("exemple").onclick=()=>{
+  S.depot={adresse:"Rue de la Donelière, 35000 Rennes",lat:null,lon:null};
+  S.points=[["Place de la Mairie","Verre",2],["Boulevard de la Liberté","Emballages",1],["Place Sainte-Anne","Verre",3],["Avenue Janvier","Ordures ménagères",2],["Rue de Fougères","Verre",1],["Place de Bretagne","Papier",2],["Rue de Saint-Malo","Verre",1],["Boulevard de Vitré","Emballages",2]]
+    .map(([a,f,n])=>({id:uid(),adresse:a,code_postal:"35000",commune:"Rennes",flux:f,nb_bacs:n,remarque:"",lat:null,lon:null,actif:true,origine:"",source:"exemple"}));
+  S.tournee=null;save();fillDepot();renderPoints();renderRoute();calculer();
+};
+
+load();fillDepot();renderFiles();renderPoints();
+try{initMap()}catch(e){$("map").textContent="Carte indisponible"}
+renderRoute();
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-fra poppler-utils
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+      - run: cargo build --release -p tournee-server
+  skill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ortools openpyxl
+      - run: python3 tests/test_tournee.py
