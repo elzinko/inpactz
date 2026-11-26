@@ -23,7 +23,7 @@ function parseGps(s) { const m = String(s || "").match(/(-?\d{1,2}[.,]\d+)\s*[,;
 const pos = (p) => p && typeof p.lat === "number" && typeof p.lon === "number";
 const fmt = (p) => (pos(p) ? p.lat.toFixed(5) + ", " + p.lon.toFixed(5) : "");
 const km = (x) => x.toFixed(1).replace(".", ",");
-function depotCourant() { const g = parseGps($("depotGps").value); return g ? { adresse: S.depot.adresse || fmt(g), lat: g.lat, lon: g.lon } : { adresse: S.depot.adresse, lat: S.depot.lat, lon: S.depot.lon }; }
+function depotCourant() { return { adresse: S.depot.adresse || fmt(S.depot), lat: S.depot.lat, lon: S.depot.lon }; }
 function statut(id, txt, err) { $(id).textContent = txt; $(id).className = "status" + (err ? " err" : ""); }
 
 /* ---------------- lecture des fichiers ---------------- */
@@ -177,9 +177,157 @@ async function placer() {
 }
 
 /* ---------------- dépôt ---------------- */
-function fillDepot() { $("depotAdr").value = S.depot.adresse || ""; $("date").value = S.date || ""; $("depotGps").value = S.depot.manuel ? fmt(S.depot) : ""; }
-$("depotAdr").onchange = (e) => { S.depot = { adresse: e.target.value.trim(), lat: null, lon: null }; S.tournee = null; save(); renderRoute(); };
-$("depotGps").onchange = (e) => { const g = parseGps(e.target.value); if (g) Object.assign(S.depot, g, { manuel: true }); else Object.assign(S.depot, { lat: null, lon: null, manuel: false }); S.tournee = null; save(); };
+function fillDepot() {
+  $("date").value = S.date || "";
+  const vide = !S.depot.adresse && !pos(S.depot);
+  $("depotCard").classList.toggle("vide", vide);
+  $("depotNom").textContent = vide ? "Pas encore réglé" : (S.depot.adresse || "Position GPS");
+  $("depotGpsTxt").textContent = pos(S.depot) ? "GPS " + fmt(S.depot) : (vide ? "" : "Position cherchée au calcul");
+}
+
+/* Fenêtre de réglage du dépôt : suggestions pendant la saisie.
+   Entreprises et lieux : Photon (OpenStreetMap, open source, sans clé).
+   Adresses : Base Adresse Nationale (autocomplétion). */
+const PHOTON = "https://photon.komoot.io/api/";
+let choix = null, suggs = [], actif = -1, ctrl = null, minuterie = null, cfgCarte = null, cfgMarq = null;
+
+function ligneAdresse(pr) {
+  const rue = [pr.housenumber, pr.street].filter(Boolean).join(" ");
+  const ville = [pr.postcode, pr.city || pr.town || pr.village || pr.locality].filter(Boolean).join(" ");
+  return [rue, ville].filter(Boolean).join(", ");
+}
+async function sugPhoton(q, signal) {
+  const u = new URL(PHOTON);
+  u.searchParams.set("q", q); u.searchParams.set("lang", "fr"); u.searchParams.set("limit", "8");
+  if (pos(S.depot)) { u.searchParams.set("lat", S.depot.lat); u.searchParams.set("lon", S.depot.lon); }
+  else { u.searchParams.set("lat", "46.6"); u.searchParams.set("lon", "2.4"); u.searchParams.set("location_bias_scale", "0.1"); }
+  const r = await fetch(u, { signal }); if (!r.ok) throw new Error("HTTP " + r.status);
+  const j = await r.json();
+  return (j.features || []).filter((f) => (f.properties.countrycode || "FR") === "FR").map((f) => {
+    const pr = f.properties, adr = ligneAdresse(pr);
+    const lieu = pr.name && !["street", "city", "district", "locality", "county", "state"].includes(pr.type) && !["highway", "place", "boundary"].includes(pr.osm_key);
+    const titre = lieu ? pr.name : (adr || pr.name || "");
+    const sous = lieu ? adr : [pr.county, pr.state].filter(Boolean).join(", ");
+    return { lieu, titre, sous, label: lieu ? [pr.name, adr].filter(Boolean).join(", ") : titre, lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] };
+  }).filter((x) => x.titre);
+}
+async function sugBan(q, signal) {
+  for (const base of GEOCODEURS) {
+    try {
+      const u = new URL(base);
+      u.searchParams.set("q", q.slice(0, 200)); u.searchParams.set("limit", "5"); u.searchParams.set("autocomplete", "1");
+      if (base.includes("geopf")) u.searchParams.set("index", "address");
+      const r = await fetch(u, { signal }); if (!r.ok) continue;
+      const j = await r.json();
+      return (j.features || []).map((f) => ({ lieu: false, titre: f.properties.name || f.properties.label, sous: [f.properties.postcode, f.properties.city].filter(Boolean).join(" "), label: f.properties.label, lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] }));
+    } catch (e) { if (e.name === "AbortError") throw e; }
+  }
+  return [];
+}
+async function suggerer(q) {
+  if (ctrl) ctrl.abort();
+  ctrl = new AbortController(); const signal = ctrl.signal;
+  statut("cfgSt", "Recherche…");
+  const [a, b] = await Promise.allSettled([sugPhoton(q, signal), q.length >= 3 ? sugBan(q, signal) : Promise.resolve([])]);
+  if (signal.aborted) return;
+  const ph = a.status === "fulfilled" ? a.value : [], ban = b.status === "fulfilled" ? b.value : [];
+  const vus = new Set(), liste = [];
+  for (const x of [...ph.filter((x) => x.lieu), ...ban, ...ph.filter((x) => !x.lieu)]) {
+    const k = x.lat.toFixed(4) + "," + x.lon.toFixed(4) + "|" + x.titre.toLowerCase();
+    if (vus.has(k)) continue; vus.add(k); liste.push(x);
+  }
+  suggs = liste.slice(0, 8); actif = -1;
+  if (a.status === "rejected" && b.status === "rejected") statut("cfgSt", "Recherche impossible : vérifiez la connexion Internet.", true);
+  else statut("cfgSt", "");
+  afficherSuggs(true);
+}
+function afficherSuggs(apresRecherche) {
+  const ul = $("cfgSugg");
+  if (!suggs.length) {
+    ul.innerHTML = apresRecherche ? `<li class="info">Aucun résultat. Essayez l'adresse (rue, commune), votre position actuelle, ou collez un lien Google Maps plus bas.</li>` : "";
+  } else {
+    ul.innerHTML = suggs.map((x, i) => `<li role="option" id="sg${i}" data-i="${i}" aria-selected="${i === actif}"><span class="ic">${x.lieu ? "🏢" : "📍"}</span><span><b>${esc(x.titre)}</b><small>${esc(x.sous)}</small></span></li>`).join("");
+  }
+  ul.hidden = !ul.innerHTML; $("cfgQ").setAttribute("aria-expanded", String(!ul.hidden));
+  if (actif >= 0) $("cfgQ").setAttribute("aria-activedescendant", "sg" + actif); else $("cfgQ").removeAttribute("aria-activedescendant");
+}
+function montrerChoix() {
+  $("cfgOk").disabled = !choix;
+  $("cfgChoix").textContent = choix ? "Dépôt choisi : " + choix.adresse + " (GPS " + fmt(choix) + "). Vous pouvez déplacer le repère sur la carte." : "";
+  if (!choix || typeof L === "undefined") return;
+  $("cfgMap").classList.add("on");
+  if (!cfgCarte) {
+    cfgCarte = L.map("cfgMap", { zoomControl: true, attributionControl: true });
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(cfgCarte);
+  }
+  cfgCarte.setView([choix.lat, choix.lon], 16);
+  if (cfgMarq) cfgMarq.remove();
+  cfgMarq = L.marker([choix.lat, choix.lon], { draggable: true }).addTo(cfgCarte);
+  cfgMarq.on("dragend", () => { const g = cfgMarq.getLatLng(); choix.lat = g.lat; choix.lon = g.lng; montrerChoix(); });
+  setTimeout(() => cfgCarte.invalidateSize(), 50);
+}
+function choisir(x) {
+  choix = { adresse: x.label, lat: x.lat, lon: x.lon };
+  $("cfgQ").value = x.label; suggs = []; afficherSuggs(false); montrerChoix();
+}
+async function inverse(lat, lon) {
+  for (const base of ["https://data.geopf.fr/geocodage/reverse", "https://api-adresse.data.gouv.fr/reverse/"]) {
+    try {
+      const u = new URL(base); u.searchParams.set("lat", lat); u.searchParams.set("lon", lon); u.searchParams.set("limit", "1");
+      if (base.includes("geopf")) u.searchParams.set("index", "address");
+      const r = await fetch(u); if (!r.ok) continue;
+      const f = ((await r.json()).features || [])[0]; if (f) return f.properties.label;
+    } catch (e) {}
+  }
+  return "";
+}
+function ouvrirReglages(premier) {
+  $("cfgIntro").textContent = (premier ? "Bienvenue ! Pour commencer, indiquez le dépôt : c'est de là que part le camion, et c'est là qu'il revient. " : "")
+    + "Tapez le nom de l'entreprise ou l'adresse, puis choisissez dans la liste.";
+  choix = pos(S.depot) ? { adresse: S.depot.adresse, lat: S.depot.lat, lon: S.depot.lon } : null;
+  $("cfgQ").value = S.depot.adresse || ""; $("cfgGps").value = ""; suggs = []; afficherSuggs(false); statut("cfgSt", "");
+  $("cfgPlusTard").textContent = premier ? "Plus tard" : "Annuler";
+  $("cfg").showModal(); montrerChoix();
+  if (!choix) $("cfgQ").focus();
+}
+$("cfgQ").oninput = (e) => {
+  const q = e.target.value.trim(); clearTimeout(minuterie);
+  choix = null; montrerChoix();
+  if (q.length < 3) { suggs = []; afficherSuggs(false); statut("cfgSt", ""); return; }
+  minuterie = setTimeout(() => suggerer(q), 300);
+};
+$("cfgQ").onkeydown = (e) => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (!suggs.length) return; e.preventDefault();
+    actif = (actif + (e.key === "ArrowDown" ? 1 : -1) + suggs.length) % suggs.length; afficherSuggs(false);
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    if (suggs.length) choisir(suggs[Math.max(actif, 0)]);
+  }
+};
+$("cfgSugg").onclick = (e) => { const li = e.target.closest("li[data-i]"); if (li) choisir(suggs[+li.dataset.i]); };
+$("cfgGps").oninput = async (e) => {
+  const g = parseGps(e.target.value); if (!g) return;
+  choix = { adresse: fmt(g), lat: g.lat, lon: g.lon }; montrerChoix();
+  const l = await inverse(g.lat, g.lon); if (l && choix && choix.lat === g.lat) { choix.adresse = "Près de " + l; montrerChoix(); }
+};
+$("cfgIci").onclick = () => {
+  if (!navigator.geolocation) { statut("cfgSt", "La position n'est pas disponible sur cet appareil.", true); return; }
+  statut("cfgSt", "Recherche de votre position…");
+  navigator.geolocation.getCurrentPosition(async (p) => {
+    const lat = p.coords.latitude, lon = p.coords.longitude;
+    choix = { adresse: fmt({ lat, lon }), lat, lon }; montrerChoix(); statut("cfgSt", "");
+    const l = await inverse(lat, lon); if (l && choix && choix.lat === lat) { choix.adresse = l; $("cfgQ").value = l; montrerChoix(); }
+  }, (err) => statut("cfgSt", "Position refusée ou introuvable (" + err.message + ").", true), { enableHighAccuracy: true, timeout: 15000 });
+};
+$("cfgOk").onclick = () => {
+  if (!choix) return;
+  S.depot = { adresse: choix.adresse, lat: choix.lat, lon: choix.lon, manuel: true };
+  S.configure = true; S.tournee = null; save(); fillDepot(); renderRoute(); $("cfg").close();
+};
+$("cfgPlusTard").onclick = () => $("cfg").close();
+$("depotMod").onclick = () => ouvrirReglages(false);
+$("reglages").onclick = () => ouvrirReglages(false);
 $("date").onchange = (e) => { S.date = e.target.value; save(); };
 
 /* ---------------- fichiers ---------------- */
@@ -341,14 +489,24 @@ $("xlsx").onclick = () => {
   } catch (e) { statut("calcSt", e.message || String(e), true); }
 };
 $("exemple").onclick = () => {
-  S.depot = { adresse: "Rue de la Donelière, 35000 Rennes", lat: null, lon: null };
-  S.points = [["Place de la Mairie", "Verre", 2], ["Boulevard de la Liberté", "Emballages", 1], ["Place Sainte-Anne", "Verre", 3], ["Avenue Janvier", "Ordures ménagères", 2], ["Rue de Fougères", "Verre", 1], ["Place de Bretagne", "Papier", 2], ["Rue de Saint-Malo", "Verre", 1], ["Boulevard de Vitré", "Emballages", 2]]
-    .map(([a, f, n]) => ({ id: uid(), adresse: a, code_postal: "35000", commune: "Rennes", flux: f, nb_bacs: n, remarque: "", lat: null, lon: null, actif: true, origine: "", source: "exemple" }));
+  const fl = [["Verre", 2], ["Emballages", 1], ["Verre", 3], ["Ordures ménagères", 2], ["Verre", 1], ["Papier", 2], ["Verre", 1], ["Emballages", 2]];
+  if (S.configure && pos(S.depot)) {
+    // Dépôt réglé : points d'exemple fictifs placés autour du dépôt (le dépôt n'est pas modifié).
+    S.points = fl.map(([f, n], i) => {
+      const ang = (i / fl.length) * 2 * Math.PI + 0.4, r = 0.03 + 0.04 * ((i * 7) % 5) / 5;
+      return { id: uid(), adresse: "Point d'exemple " + (i + 1), code_postal: "", commune: "", flux: f, nb_bacs: n, remarque: "Fictif", lat: S.depot.lat + r * Math.sin(ang), lon: S.depot.lon + r * 1.5 * Math.cos(ang), actif: true, origine: "manuel", source: "exemple" };
+    });
+  } else {
+    S.depot = { adresse: "Rue de la Donelière, 35000 Rennes", lat: null, lon: null };
+    S.points = ["Place de la Mairie", "Boulevard de la Liberté", "Place Sainte-Anne", "Avenue Janvier", "Rue de Fougères", "Place de Bretagne", "Rue de Saint-Malo", "Boulevard de Vitré"]
+      .map((a, i) => ({ id: uid(), adresse: a, code_postal: "35000", commune: "Rennes", flux: fl[i][0], nb_bacs: fl[i][1], remarque: "", lat: null, lon: null, actif: true, origine: "", source: "exemple" }));
+  }
   S.tournee = null; save(); fillDepot(); renderPoints(); renderRoute(); calculer();
 };
 
 /* ---------------- démarrage ---------------- */
 load(); fillDepot(); renderFiles(); renderPoints();
+if (!S.configure && !S.depot.adresse && !pos(S.depot)) ouvrirReglages(true);
 try { initMap(); } catch (e) { $("map").textContent = "Carte indisponible"; }
 renderRoute();
 init().then(() => { pret = true; $("moteurSt").textContent = "Moteur prêt : la lecture et le calcul se font sur cet appareil."; renderFiles(); })

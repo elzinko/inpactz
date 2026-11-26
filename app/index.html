@@ -75,24 +75,48 @@ ol.route small{display:block;color:var(--muted)}
 .mk{background:var(--ink);color:#fff;border:2px solid #fff;border-radius:50%;width:26px!important;height:26px!important;display:grid!important;place-items:center;font:500 12px var(--f-mono);box-shadow:0 1px 3px #0006}
 .mk.weak{border-color:#b42318}
 .mk.dep{background:#f2a900;color:#2a1f00;border-radius:4px}
+.depotCard{display:flex;flex-direction:column;border:1px solid var(--line);border-left:4px solid var(--signal);border-radius:4px;padding:8px 12px;background:var(--bg)}
+.depotCard .lbl{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.depotCard small{font:.75rem var(--f-mono);color:var(--muted)}
+.depotCard.vide b{color:var(--warn)}
+dialog#cfg{border:1px solid var(--line);border-radius:8px;padding:0;background:var(--surface);color:var(--ink);width:min(560px,calc(100vw - 24px));max-height:calc(100dvh - 24px)}
+dialog#cfg::backdrop{background:#0008}
+.cfg{display:flex;flex-direction:column;gap:12px;padding:18px}
+.ac{position:relative}
+.sugg{list-style:none;margin:4px 0 0;padding:0;border:1px solid var(--line);border-radius:4px;background:var(--surface);max-height:260px;overflow:auto}
+.sugg li{padding:9px 10px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;gap:10px;align-items:flex-start}
+.sugg li:last-child{border-bottom:0}
+.sugg li[aria-selected=true],.sugg li:hover{background:var(--ok-bg)}
+.sugg .ic{flex:0 0 auto;width:22px;text-align:center}
+.sugg b{display:block;font-weight:600}
+.sugg small{color:var(--muted)}
+.sugg li.info{cursor:default;color:var(--muted);font-size:.88rem}
+.sugg li.info:hover{background:none}
+details#cfgAvance summary{cursor:pointer;color:var(--muted);font-size:.88rem}
+details#cfgAvance input{margin-top:6px}
+#cfgMap{height:200px;border-radius:4px;border:1px solid var(--line);display:none}
+#cfgMap.on{display:block}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <div><h1>Tournée PAV <span>Rotation bacs</span></h1>
-    <p class="lead">Déposez vos fiches (PDF, photos ou fichier Excel). Tout est lu et calculé sur cet appareil. Seule la recherche des adresses utilise Internet (Base Adresse Nationale).</p></div>
-    <button id="exemple" class="ghost">Charger un exemple</button>
+    <p class="lead">Déposez vos fiches (PDF, photos ou fichier Excel). Tout est lu et calculé sur cet appareil. Seule la recherche des adresses utilise Internet (Base Adresse Nationale, OpenStreetMap).</p></div>
+    <div class="row"><button id="exemple" class="ghost">Charger un exemple</button><button id="reglages" aria-label="Réglages">⚙ Réglages</button></div>
   </header>
 
   <section>
     <h2><span class="n">1</span>Départ et retour du camion</h2>
     <div class="row">
-      <label class="f grow">Adresse du dépôt<input type="text" id="depotAdr" placeholder="ex. 12 rue de l'Industrie, 35000 Rennes"></label>
-      <label class="f" style="flex:0 1 200px">GPS (facultatif)<input type="text" id="depotGps" placeholder="48.1113, -1.6800"></label>
+      <div class="depotCard grow" id="depotCard">
+        <span class="lbl">Dépôt</span>
+        <b id="depotNom">Pas encore réglé</b>
+        <small id="depotGpsTxt"></small>
+      </div>
+      <button id="depotMod">Modifier</button>
       <label class="f" style="flex:0 1 170px">Date<input type="date" id="date"></label>
     </div>
-    <p class="hint">Mémorisé sur cet appareil. Le GPS, s'il est rempli, passe avant l'adresse.</p>
   </section>
 
   <section>
@@ -144,6 +168,31 @@ ol.route small{display:block;color:var(--muted)}
   <p class="hint">Distances estimées à vol d'oiseau × 1,3. Ordre de passage calculé sur l'appareil par le solveur open source vrp-pragmatic (Rust/WebAssembly). Lecture : pdf.js, Tesseract. Adresses : Base Adresse Nationale.</p>
   <p class="hint" id="moteurSt">Chargement du moteur…</p>
 </div>
+
+<dialog id="cfg" aria-labelledby="cfgTitre">
+  <form method="dialog" class="cfg">
+    <h2 id="cfgTitre">Adresse du dépôt</h2>
+    <p class="hint" id="cfgIntro">D'où part le camion, et où revient-il ? Tapez le nom de l'entreprise ou l'adresse, puis choisissez dans la liste.</p>
+    <div class="ac">
+      <input type="text" id="cfgQ" autocomplete="off" placeholder="ex. Inpact Vernou-la-Celle, ou 12 rue de l'Industrie Rennes" role="combobox" aria-autocomplete="list" aria-controls="cfgSugg" aria-expanded="false">
+      <ul id="cfgSugg" role="listbox" class="sugg" hidden></ul>
+    </div>
+    <span class="status" id="cfgSt"></span>
+    <div class="row">
+      <button type="button" id="cfgIci">📍 Ma position actuelle</button>
+    </div>
+    <details id="cfgAvance">
+      <summary>Coordonnées GPS ou lien Google Maps</summary>
+      <input type="text" id="cfgGps" placeholder="48.1113, -1.6800 ou https://maps.google.com/…@48.11,-1.68,17z">
+    </details>
+    <div id="cfgMap"></div>
+    <p class="hint" id="cfgChoix"></p>
+    <div class="row" style="justify-content:flex-end">
+      <button type="button" class="ghost" id="cfgPlusTard">Plus tard</button>
+      <button type="button" class="primary" id="cfgOk" disabled>Enregistrer</button>
+    </div>
+  </form>
+</dialog>
 
 <script src="vendor/leaflet/leaflet.js"></script>
 <script src="vendor/pdfjs/pdf.min.js"></script>

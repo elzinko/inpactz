@@ -88,6 +88,8 @@ cargo test --workspace
 
 Le dossier `app/` est une appli web autonome : le moteur Rust y est compilé en WebAssembly (`crates/tournee-wasm` → `app/pkg`). La lecture des PDF (pdf.js), l'OCR des photos (Tesseract.js, français), la lecture des fichiers Excel/CSV (calamine), le calcul de la tournée (vrp-pragmatic) et la création de l'Excel (rust_xlsxwriter) se font **sur l'appareil**. Seule la recherche des adresses (Base Adresse Nationale) et le fond de carte utilisent Internet. L'appli s'installe sur l'écran d'accueil du téléphone et reste utilisable hors connexion pour la lecture et le calcul.
 
+Au premier lancement, l'appli demande l'adresse du dépôt (bouton **⚙ Réglages** ensuite). Les suggestions pendant la saisie viennent de [Photon](https://photon.komoot.io) (entreprises et lieux OpenStreetMap, sans clé) et de la Base Adresse Nationale (adresses). On peut aussi prendre sa position actuelle ou coller un lien Google Maps, puis ajuster le repère sur la carte.
+
 C'est ce même dossier `app/` que l'application Android (Tauri) embarquera.
 
 ```bash
