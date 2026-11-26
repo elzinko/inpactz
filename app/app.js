@@ -331,7 +331,61 @@ $("reglages").onclick = () => ouvrirReglages(false);
 $("date").onchange = (e) => { S.date = e.target.value; save(); };
 
 /* ---------------- fichiers ---------------- */
-function addFiles(list) { for (const f of list) fichiers.push({ f, st: "attente", res: null, msg: "" }); renderFiles(); }
+/* Les fichiers déposés sont gardés sur l'appareil (IndexedDB) avec leur état :
+   si le téléphone se met en veille ou si le navigateur recharge la page,
+   la lecture reprend là où elle s'était arrêtée. */
+const BD = (() => {
+  let p = null;
+  const ouvrir = () => p || (p = new Promise((ok, ko) => {
+    const r = indexedDB.open("tournee-pav-fichiers", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("f", { keyPath: "id" });
+    r.onsuccess = () => ok(r.result); r.onerror = () => ko(r.error);
+  }));
+  const tx = async (mode, fn) => { const db = await ouvrir(); return new Promise((ok, ko) => { const t = db.transaction("f", mode); const r = fn(t.objectStore("f")); t.oncomplete = () => ok(r && r.result); t.onerror = () => ko(t.error); }); };
+  return {
+    mettre: (x) => tx("readwrite", (s) => s.put({ id: x.id, f: x.f, nom: x.f.name, st: x.st, res: x.res, err: x.err || null, n: x.n })).catch(() => {}),
+    retirer: (id) => tx("readwrite", (s) => s.delete(id)).catch(() => {}),
+    vider: () => tx("readwrite", (s) => s.clear()).catch(() => {}),
+    tout: () => tx("readonly", (s) => s.getAll()).catch(() => []),
+  };
+})();
+let ordre = 0;
+function addFiles(list) {
+  for (const f of list) { const x = { id: uid(), f, st: "attente", res: null, msg: "", n: ordre++ }; fichiers.push(x); BD.mettre(x); }
+  renderFiles(); lireTout();
+}
+async function restaurerFichiers() {
+  const l = (await BD.tout()) || [];
+  l.sort((a, b) => a.n - b.n);
+  for (const r of l) {
+    const f = r.f instanceof File ? r.f : new File([r.f], r.nom || "fichier", { type: r.f?.type || "" });
+    fichiers.push({ id: r.id, f, st: r.st === "lecture" ? "attente" : r.st, res: r.res, err: r.err, msg: "", n: r.n });
+    ordre = Math.max(ordre, (r.n || 0) + 1);
+  }
+  renderFiles();
+}
+
+/* Garde l'écran allumé pendant un traitement (Screen Wake Lock), quand le navigateur le permet. */
+let verrou = null, occupe = 0;
+async function prendreVerrou() { try { if ("wakeLock" in navigator && !verrou && document.visibilityState === "visible") { verrou = await navigator.wakeLock.request("screen"); verrou.addEventListener("release", () => { verrou = null; }); } } catch (e) {} }
+async function sansVeille(fn) {
+  occupe++; prendreVerrou();
+  try { return await fn(); }
+  finally { if (--occupe === 0 && verrou) { verrou.release().catch(() => {}); verrou = null; } }
+}
+function signalerFin(txt) {
+  if (document.visibilityState !== "visible") {
+    document.title = "✓ " + txt;
+    try { navigator.vibrate && navigator.vibrate([120, 80, 120]); } catch (e) {}
+  }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  document.title = "Tournée PAV";
+  if (occupe) prendreVerrou();
+  lireTout();
+});
+
 function renderFiles() {
   const ul = $("files"); ul.innerHTML = "";
   for (const x of fichiers) {
@@ -340,7 +394,7 @@ function renderFiles() {
     const msg = x.st === "lecture" ? x.msg || "lecture" : x.res ? `${x.res.points.length} point(s) · ${x.res.methode}` : x.st === "erreur" ? "erreur" : "en attente";
     li.innerHTML = `<span class="nm"></span><span class="pill ${cls}">${esc(msg)}</span><button class="ghost" aria-label="Retirer">×</button>`;
     li.querySelector(".nm").textContent = x.f.name;
-    li.querySelector("button").onclick = () => { fichiers = fichiers.filter((y) => y !== x); renderFiles(); };
+    li.querySelector("button").onclick = () => { fichiers = fichiers.filter((y) => y !== x); BD.retirer(x.id); renderFiles(); };
     if (x.res || x.err) {
       const d = document.createElement("details"); d.className = "txt";
       d.innerHTML = `<summary class="hint"></summary><pre></pre>`;
@@ -350,7 +404,7 @@ function renderFiles() {
     }
     ul.appendChild(li);
   }
-  $("lire").disabled = !pret || !fichiers.some((x) => x.st === "attente" || x.st === "erreur");
+  $("lire").disabled = !pret || enLecture || !fichiers.some((x) => x.st === "attente" || x.st === "erreur");
 }
 const drop = $("drop");
 $("choisir").onclick = () => $("fIn").click();
@@ -363,20 +417,37 @@ $("phIn").onchange = (e) => { addFiles(e.target.files); e.target.value = ""; };
 ["dragleave", "drop"].forEach((v) => drop.addEventListener(v, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
 drop.addEventListener("drop", (e) => addFiles(e.dataTransfer.files));
 
-$("lire").onclick = async () => {
-  $("lire").disabled = true; let n = 0;
-  for (const x of fichiers.filter((y) => y.st === "attente" || y.st === "erreur")) {
-    x.st = "lecture"; x.err = null; renderFiles(); statut("lireSt", "Lecture de " + x.f.name + "…");
+/* Lecture automatique dès qu'un fichier est ajouté, un fichier à la fois.
+   Reprend toute seule au retour sur l'appli si elle a été interrompue. */
+let enLecture = false;
+async function lireTout(avecErreurs) {
+  if (enLecture || !pret) return;
+  const aLire = () => fichiers.find((y) => y.st === "attente" || (avecErreurs && y.st === "erreur" && !y.tente));
+  if (!aLire()) return;
+  enLecture = true; let n = 0;
+  await sansVeille(async () => {
     try {
-      x.res = await lireFichier(x.f, (m) => { x.msg = m; renderFiles(); });
-      x.st = x.res.points.length ? "lu" : "erreur";
-      for (const p of x.res.points) { p.id = uid(); S.points.push(p); n++; }
-    } catch (e) { x.st = "erreur"; x.err = e.message || String(e); }
-    renderFiles(); save(); renderPoints();
-  }
-  statut("lireSt", n + " point(s) trouvé(s).");
-  if (n) await placer();
-};
+      let x;
+      while ((x = aLire())) {
+        x.tente = true;
+        const reste = fichiers.filter((y) => y.st === "attente").length;
+        x.st = "lecture"; x.err = null; renderFiles(); statut("lireSt", `Lecture de ${x.f.name}… (${reste} restant${reste > 1 ? "s" : ""})`);
+        BD.mettre(x);
+        try {
+          x.res = await lireFichier(x.f, (m) => { x.msg = m; renderFiles(); });
+          x.st = x.res.points.length ? "lu" : "erreur";
+          for (const p of x.res.points) { p.id = uid(); S.points.push(p); n++; }
+        } catch (e) { x.st = "erreur"; x.err = e.message || String(e); }
+        BD.mettre(x); save(); renderFiles(); renderPoints();
+      }
+    } finally { enLecture = false; fichiers.forEach((y) => delete y.tente); renderFiles(); }
+    const lus = fichiers.filter((y) => y.st === "lu").length, err = fichiers.filter((y) => y.st === "erreur").length;
+    statut("lireSt", `${lus} fichier(s) lu(s), ${n} point(s) trouvé(s).` + (err ? ` ${err} fichier(s) sans adresse ou en erreur.` : ""));
+    if (n) await placer();
+    signalerFin("Fiches lues");
+  });
+}
+$("lire").onclick = () => lireTout(true);
 
 /* ---------------- points ---------------- */
 function precision(p) {
@@ -418,7 +489,7 @@ $("ajout").onclick = () => { S.points.push({ id: uid(), adresse: "", code_postal
 let arm = false;
 $("vider").onclick = () => {
   if (!arm) { arm = true; $("vider").textContent = "Confirmer"; setTimeout(() => { arm = false; $("vider").textContent = "Tout effacer"; }, 4000); return; }
-  arm = false; $("vider").textContent = "Tout effacer"; S.points = []; S.tournee = null; fichiers = []; save(); renderFiles(); renderPoints(); renderRoute();
+  arm = false; $("vider").textContent = "Tout effacer"; S.points = []; S.tournee = null; fichiers = []; BD.vider(); save(); renderFiles(); renderPoints(); renderRoute();
 };
 
 /* ---------------- tournée ---------------- */
@@ -430,7 +501,8 @@ function initMap() {
 }
 const icone = (txt, cls) => L.divIcon({ className: "", html: `<div class="mk ${cls || ""}">${esc(txt)}</div>`, iconSize: [26, 26], iconAnchor: [13, 13] });
 
-async function calculer() {
+async function calculer() { return sansVeille(calculerSansVeille); }
+async function calculerSansVeille() {
   statut("calcSt", "Calcul…");
   try {
     if (S.points.some((p) => p.actif !== false && !pos(p) && p.origine !== "introuvable") || !pos(depotCourant())) await placer();
@@ -511,6 +583,7 @@ load(); fillDepot(); renderFiles(); renderPoints();
 if (!S.configure && !S.depot.adresse && !pos(S.depot)) ouvrirReglages(true);
 try { initMap(); } catch (e) { $("map").textContent = "Carte indisponible"; }
 renderRoute();
-init().then(() => { pret = true; $("moteurSt").textContent = "Moteur prêt : la lecture et le calcul se font sur cet appareil."; renderFiles(); })
+const restaure = restaurerFichiers();
+init().then(async () => { pret = true; $("moteurSt").textContent = "Moteur prêt : la lecture et le calcul se font sur cet appareil."; await restaure; renderFiles(); lireTout(); })
   .catch((e) => { $("moteurSt").textContent = "Le moteur n'a pas pu démarrer : " + e.message; });
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
