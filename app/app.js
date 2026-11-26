@@ -415,26 +415,21 @@ function vignette(x) {
   if (!x.url) x.url = URL.createObjectURL(x.f);
   const t = typeDe(x.f);
   if (t === "image") return `<button class="vg" data-voir aria-label="Voir en plein écran"><img src="${x.url}" alt="" style="transform:rotate(${x.rot || 0}deg)"></button>`;
-  if (t === "pdf") return `<button class="vg doc" data-voir aria-label="Voir en plein écran">PDF</button>`;
-  return `<span class="vg doc">${t === "csv" ? "CSV" : "XLS"}</span>`;
+  return `<button class="vg doc" data-voir aria-label="Voir">${t === "pdf" ? "PDF" : t === "csv" ? "CSV" : "EXCEL"}</button>`;
 }
 function renderFiles() {
   const ul = $("files"); ul.innerHTML = "";
   for (const x of fichiers) {
     const li = document.createElement("li");
+    const n = x.res ? x.res.points.length : 0;
     const cls = { attente: "p-wait", lecture: "p-run", lu: "p-ok", erreur: "p-bad" }[x.st];
-    const msg = x.st === "lecture" ? x.msg || "lecture" : x.res ? `${x.res.points.length} point(s) · ${x.res.methode}` : x.st === "erreur" ? "erreur" : "en attente";
+    const msg = x.st === "lecture" ? x.msg || "lecture" : x.st === "attente" ? "en attente" : x.err ? "erreur" : n ? `${n} point${n > 1 ? "s" : ""}` : "aucune adresse";
+    li.className = x.st === "erreur" ? "ko" : "";
+    li.title = x.err || x.f.name;
     li.innerHTML = `${vignette(x)}<span class="nm"></span><span class="pill ${cls}">${esc(msg)}</span><button class="ghost" data-suppr aria-label="Retirer">×</button>`;
     li.querySelector(".nm").textContent = x.f.name;
     li.querySelector("[data-suppr]").onclick = () => { retirerPoints(x); fichiers = fichiers.filter((y) => y !== x); BD.retirer(x.id); if (x.url) URL.revokeObjectURL(x.url); renderFiles(); };
-    const v = li.querySelector("[data-voir]"); if (v) v.onclick = () => voir(x);
-    if (x.res || x.err) {
-      const d = document.createElement("details"); d.className = "txt";
-      d.innerHTML = `<summary class="hint"></summary><pre></pre>`;
-      d.querySelector("summary").textContent = x.err || (x.res.points.length ? "Voir le texte lu" : "Aucune adresse reconnue : touchez l'image pour la vérifier, ou voir le texte lu");
-      d.querySelector("pre").textContent = x.res?.texte || "(pas de texte)";
-      li.appendChild(d);
-    }
+    li.querySelector("[data-voir]").onclick = () => voir(x);
     ul.appendChild(li);
   }
   $("lire").disabled = !pret || enLecture || !fichiers.some((x) => x.st === "attente" || x.st === "erreur");
@@ -452,7 +447,11 @@ async function voir(x) {
   $("vueNom").textContent = x.f.name;
   $("vuePivot").hidden = t !== "image";
   box.innerHTML = "";
-  if (t === "image") {
+  $("vueTxt").textContent = x.err ? "Erreur : " + x.err : x.res ? (x.res.texte || "(fichier tableur : pas de texte)") + `\n\n→ ${x.res.points.length} point(s) trouvé(s) (${x.res.methode})` : "Pas encore lu.";
+  $("vueTexte").open = !!(x.res && !x.res.points.length) || !!x.err;
+  if (t === "classeur" || t === "csv" || t === "heic") {
+    box.innerHTML = `<p class="hint" style="color:#ccc">${esc(x.f.name)} : ${x.res ? x.res.points.length + " point(s) lu(s)" : "pas encore lu"}.</p>`;
+  } else if (t === "image") {
     await afficherImage();
   } else {
     box.innerHTML = `<p class="hint" style="color:#ccc">Affichage du PDF…</p>`;
