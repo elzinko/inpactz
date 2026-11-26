@@ -21,6 +21,7 @@
   --accent:#3fbf8f;--accent-ink:#06140e;--signal:#f5b82e;--signal-ink:#241a00;
   --warn:#f0a44b;--warn-bg:#33240f;--bad:#f07b6e;--bad-bg:#3a1714;--ok:#5fd39a;--ok-bg:#12301f;color-scheme:dark}}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f-body)}
 .wrap{max-width:1180px;margin:0 auto;padding:16px max(16px,env(safe-area-inset-right)) 60px max(16px,env(safe-area-inset-left));display:flex;flex-direction:column;gap:16px}
 header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:8px;border-bottom:3px solid var(--ink);padding-bottom:10px}
@@ -149,7 +150,7 @@ dialog#vue[open]{display:flex;flex-direction:column}
     </div>
     <p class="hint">Touchez un fichier pour le voir en grand avec le texte lu. La lecture démarre toute seule. Gardez l'appli ouverte : l'écran reste allumé pendant la lecture. Si le téléphone se met quand même en veille, la lecture reprend dès que vous revenez sur l'appli.</p>
     <ul class="files" id="files"></ul>
-    <div class="row"><button id="lire" disabled>Relire les fichiers en erreur</button><span class="status" id="lireSt"></span></div>
+    <div class="row"><button id="lire" disabled>Relire les fichiers en erreur</button><button id="viderFichiers" hidden>🗑 Retirer tous les fichiers</button><span class="status" id="lireSt"></span></div>
   </section>
 
   <section>

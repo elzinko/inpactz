@@ -433,7 +433,16 @@ function renderFiles() {
     ul.appendChild(li);
   }
   $("lire").disabled = !pret || enLecture || !fichiers.some((x) => x.st === "attente" || x.st === "erreur");
+  $("viderFichiers").hidden = !fichiers.length;
 }
+let armF = false;
+$("viderFichiers").onclick = () => {
+  const b = $("viderFichiers"), lib = "🗑 Retirer tous les fichiers";
+  if (!armF) { armF = true; b.textContent = `Confirmer : retirer ${fichiers.length} fichier(s) et leurs points`; b.classList.add("signal"); setTimeout(() => { armF = false; b.textContent = lib; b.classList.remove("signal"); }, 4000); return; }
+  armF = false; b.textContent = lib; b.classList.remove("signal");
+  for (const x of fichiers) { retirerPoints(x); if (x.url) URL.revokeObjectURL(x.url); }
+  fichiers = []; BD.vider(); S.tournee = null; save(); renderFiles(); renderPoints(); renderRoute(); statut("lireSt", "Fichiers retirés.");
+};
 function retirerPoints(x) {
   if (!x.pids || !x.pids.length) return;
   const ids = new Set(x.pids); S.points = S.points.filter((p) => !ids.has(p.id)); x.pids = []; S.tournee = null; save(); renderPoints();
@@ -522,6 +531,7 @@ async function lireTout(avecErreurs) {
         BD.mettre(x);
         try {
           x.res = await lireFichier(x.f, (m) => { x.msg = m; renderFiles(); }, x.rot || 0);
+          if (!fichiers.includes(x)) continue; // retiré pendant la lecture
           if (x.res.rot !== undefined) x.rot = x.res.rot;
           x.st = x.res.points.length ? "lu" : "erreur";
           x.pids = [];
