@@ -55,7 +55,7 @@ impl Point {
     pub fn fiable(&self) -> bool {
         match self.origine.as_str() {
             "fiche" | "manuel" => true,
-            _ => self.score.map(|s| s >= crate::geocode::SCORE_FIABLE).unwrap_or(false),
+            _ => self.score.map(|s| s >= crate::SCORE_FIABLE).unwrap_or(false),
         }
     }
 }

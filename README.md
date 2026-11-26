@@ -83,3 +83,20 @@ Le `Dockerfile` contient tout (Rust, Tesseract, Poppler). `render.yaml` permet d
 ```bash
 cargo test --workspace
 ```
+
+## Appli tout embarquée (WebAssembly) — hébergée sur Vercel
+
+Le dossier `app/` est une appli web autonome : le moteur Rust y est compilé en WebAssembly (`crates/tournee-wasm` → `app/pkg`). La lecture des PDF (pdf.js), l'OCR des photos (Tesseract.js, français), la lecture des fichiers Excel/CSV (calamine), le calcul de la tournée (vrp-pragmatic) et la création de l'Excel (rust_xlsxwriter) se font **sur l'appareil**. Seule la recherche des adresses (Base Adresse Nationale) et le fond de carte utilisent Internet. L'appli s'installe sur l'écran d'accueil du téléphone et reste utilisable hors connexion pour la lecture et le calcul.
+
+C'est ce même dossier `app/` que l'application Android (Tauri) embarquera.
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.100
+./scripts/build-app.sh          # recompile app/pkg après une modification du moteur
+python3 -m http.server -d app   # test local sur http://localhost:8000
+```
+
+Vercel publie directement le dossier `app/` (voir `vercel.json`), sans étape de compilation : pensez à lancer `scripts/build-app.sh` et à committer `app/pkg` après une modification du moteur. La CI vérifie que `app/pkg` est à jour.
+
+Bibliothèques embarquées dans `app/vendor` : pdf.js 3.11.174 (Apache 2.0), Tesseract.js 5.1.1 + modèle français (Apache 2.0), Leaflet 1.9.4 (BSD-2).

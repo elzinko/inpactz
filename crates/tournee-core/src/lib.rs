@@ -10,9 +10,14 @@
 //! et servira à l'application mobile.
 
 pub mod extract;
+#[cfg(feature = "natif")]
 pub mod geocode;
 pub mod model;
 pub mod solve;
+pub mod tableur;
 pub mod xlsx;
+
+/// Score BAN au-dessus duquel une position est jugée fiable.
+pub const SCORE_FIABLE: f64 = 0.6;
 
 pub use model::*;

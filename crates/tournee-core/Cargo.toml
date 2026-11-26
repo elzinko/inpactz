@@ -5,17 +5,29 @@ edition.workspace = true
 license.workspace = true
 description = "Moteur de tournée PAV : lecture des fiches, géocodage BAN, ordre de passage, export Excel"
 
+[features]
+default = ["natif"]
+# Fonctions qui ont besoin du système (réseau, fichiers, Tesseract) : service web.
+# Sans cette option, la bibliothèque compile en WebAssembly pour l'appli embarquée.
+natif = ["dep:reqwest", "dep:tokio", "dep:pdf-extract", "dep:tempfile"]
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-tokio = { version = "1", features = ["time", "process", "fs"] }
 vrp-pragmatic = "1.25.0"
 vrp-core = "1.25.0"
-rust_xlsxwriter = "0.104"
-pdf-extract = "0.12"
+calamine = "0.38"
 regex = "1"
 once_cell = "1"
-tempfile = "3"
 urlencoding = "2"
 unicode-normalization = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+tokio = { version = "1", features = ["time", "process", "fs"], optional = true }
+pdf-extract = { version = "0.12", optional = true }
+tempfile = { version = "3", optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rust_xlsxwriter = "0.104"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+rust_xlsxwriter = { version = "0.104", features = ["wasm"] }

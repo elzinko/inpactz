@@ -12,7 +12,9 @@ use crate::model::Point;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Serialize;
+#[cfg(feature = "natif")]
 use std::path::Path;
+#[cfg(feature = "natif")]
 use tokio::process::Command;
 use unicode_normalization::UnicodeNormalization;
 
@@ -27,6 +29,7 @@ pub struct Lecture {
 }
 
 /// Lit un fichier (PDF ou image) et renvoie les points trouvés.
+#[cfg(feature = "natif")]
 pub async fn lire_fichier(nom: &str, octets: &[u8]) -> Lecture {
     let mut l = Lecture { fichier: nom.to_string(), ..Default::default() };
     let est_pdf = octets.starts_with(b"%PDF") || nom.to_lowercase().ends_with(".pdf");
@@ -62,6 +65,7 @@ pub async fn lire_fichier(nom: &str, octets: &[u8]) -> Lecture {
     l
 }
 
+#[cfg(feature = "natif")]
 /// Texte d'un PDF avec Poppler (`pdftotext -layout`), qui garde les colonnes séparées.
 async fn pdftotext(octets: &[u8]) -> Option<String> {
     let dir = tempfile::tempdir().ok()?;
@@ -71,6 +75,7 @@ async fn pdftotext(octets: &[u8]) -> Option<String> {
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+#[cfg(feature = "natif")]
 async fn ocr_image(octets: &[u8], nom: &str) -> Result<String, String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let ext = Path::new(nom).extension().and_then(|e| e.to_str()).unwrap_or("img").to_lowercase();
@@ -82,6 +87,7 @@ async fn ocr_image(octets: &[u8], nom: &str) -> Result<String, String> {
     tesseract(&chemin).await
 }
 
+#[cfg(feature = "natif")]
 async fn ocr_pdf(octets: &[u8]) -> Result<String, String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let pdf = dir.path().join("fiche.pdf");
@@ -111,6 +117,7 @@ async fn ocr_pdf(octets: &[u8]) -> Result<String, String> {
     Ok(texte)
 }
 
+#[cfg(feature = "natif")]
 async fn tesseract(image: &Path) -> Result<String, String> {
     let out = Command::new("tesseract")
         .arg(image)

@@ -7,7 +7,7 @@ use crate::model::{haversine, Depot, Point};
 use serde::Deserialize;
 use std::time::Duration;
 
-pub const SCORE_FIABLE: f64 = 0.6;
+pub use crate::SCORE_FIABLE;
 /// Au-delà, un point trouvé loin du dépôt est considéré comme une erreur.
 pub const RAYON_MAX_KM: f64 = 80.0;
 
