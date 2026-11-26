@@ -1,0 +1,20 @@
+adresse;code_postal;commune;flux;nb_bacs;remarque;source;lat;lon
+Place de la République;35000;Rennes;Verre;2;;fiche1.pdf;;
+Rue de Nantes;;Rennes;Papier;1;Avant 10h;fiche1.pdf;;
+Place Sainte-Anne;35000;Rennes;Verre;3;;photo2.jpg;;
+Place Sainte-Anne;35000;Rennes;Verre;1;côté église;photo3.jpg;;
+Rue flou;;Rennes;Emballages;2;;photo2.jpg;;
+Chemin introuvable;;Rennes;Verre;1;;photo2.jpg;;
+Lieu-dit GPS;;Cesson;Verre;1;;photo4.jpg;48,1200;-1,6000
+Rue 1;;Rennes;Verre;1;;f;;
+Rue 2;;Rennes;Verre;1;;f;;
+Rue 3;;Rennes;Verre;1;;f;;
+Rue 4;;Rennes;Verre;1;;f;;
+Rue 5;;Rennes;Verre;1;;f;;
+Rue 6;;Rennes;Verre;1;;f;;
+Rue 7;;Rennes;Verre;1;;f;;
+Rue 8;;Rennes;Verre;1;;f;;
+Rue 9;;Rennes;Verre;1;;f;;
+Rue 10;;Rennes;Verre;1;;f;;
+Rue 11;;Rennes;Verre;1;;f;;
+Rue 12;;Rennes;Verre;1;;f;;

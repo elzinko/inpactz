@@ -1,0 +1,746 @@
+<title>Tournée PAV</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout : une colonne d'étapes (dépôt, fiches, points, tournée), carte + feuille de route côte à côte en large */
+:root{
+  --bg:#f3f5f2; --surface:#ffffff; --ink:#17251f; --muted:#5b6b63; --line:#d5ddd8;
+  --accent:#0f6b4f; --accent-ink:#ffffff; --signal:#f2a900; --signal-ink:#2a1f00;
+  --warn:#b45309; --warn-bg:#fff4e0; --bad:#b42318; --bad-bg:#fdecea; --ok:#127a4a; --ok-bg:#e5f5ec;
+  --route:#0f6b4f; --pt:#17251f;
+  --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1714; --surface:#16211c; --ink:#e4ece7; --muted:#9aaba2; --line:#2a3a33;
+  --accent:#3fbf8f; --accent-ink:#06140e; --signal:#f5b82e; --signal-ink:#241a00;
+  --warn:#f0a44b; --warn-bg:#33240f; --bad:#f07b6e; --bad-bg:#3a1714; --ok:#5fd39a; --ok-bg:#12301f;
+  --route:#3fbf8f; --pt:#e4ece7; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1714; --surface:#16211c; --ink:#e4ece7; --muted:#9aaba2; --line:#2a3a33;
+  --accent:#3fbf8f; --accent-ink:#06140e; --signal:#f5b82e; --signal-ink:#241a00;
+  --warn:#f0a44b; --warn-bg:#33240f; --bad:#f07b6e; --bad-bg:#3a1714; --ok:#5fd39a; --ok-bg:#12301f;
+  --route:#3fbf8f; --pt:#e4ece7; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding-block:20px 60px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:18px}
+header.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;border-bottom:3px solid var(--ink);padding-bottom:12px}
+h1{font-family:var(--f-display);font-weight:700;font-size:2.4rem;line-height:1;margin:0;letter-spacing:.01em;text-transform:uppercase}
+h1 .tag{display:inline-block;background:var(--signal);color:var(--signal-ink);padding:2px 8px;margin-left:6px;font-size:.55em;vertical-align:middle;letter-spacing:.06em}
+.lead{margin:4px 0 0;color:var(--muted);max-width:62ch}
+h2{font-family:var(--f-display);font-weight:600;font-size:1.45rem;margin:0;text-transform:uppercase;letter-spacing:.03em;text-wrap:balance;display:flex;align-items:center;gap:10px}
+h2 .n{font-family:var(--f-mono);font-size:.8rem;background:var(--ink);color:var(--bg);width:26px;height:26px;display:inline-grid;place-items:center;border-radius:50%}
+section.step{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:18px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.grow{flex:1 1 260px;min-width:0}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+input[type=text],input[type=date],textarea,select{font:inherit;font-size:15px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px 10px;width:100%;text-transform:none;letter-spacing:0;font-weight:400}
+input:focus-visible,textarea:focus-visible,select:focus-visible,button:focus-visible,.drop:focus-visible,a:focus-visible{outline:3px solid var(--signal);outline-offset:2px}
+button{font:inherit;font-weight:600;border-radius:4px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:8px 14px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--ink)}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button.primary:hover{filter:brightness(1.08)}
+button.signal{background:var(--signal);color:var(--signal-ink);border-color:var(--signal)}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.ghost{background:transparent;border-color:transparent;color:var(--muted);padding:4px 8px}
+button.ghost:hover{color:var(--ink);border-color:var(--line)}
+.hint{font-size:.85rem;color:var(--muted);margin:0}
+.note{font-size:.88rem;border-left:4px solid var(--signal);background:var(--warn-bg);padding:8px 12px;border-radius:0 4px 4px 0;margin:0}
+.drop{border:2px dashed var(--line);border-radius:6px;padding:26px 16px;text-align:center;cursor:pointer;display:flex;flex-direction:column;gap:6px;align-items:center;background:var(--bg)}
+.drop.over{border-color:var(--accent);background:var(--ok-bg)}
+.drop strong{font-family:var(--f-display);font-size:1.3rem;text-transform:uppercase;letter-spacing:.03em}
+.files{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}
+.files li{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:4px;padding:4px 6px 4px 10px;font-size:.85rem;max-width:100%;min-width:0}
+.files li .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:24ch}
+.pill{font-family:var(--f-mono);font-size:.72rem;padding:1px 7px;border-radius:999px;white-space:nowrap;border:1px solid transparent}
+.p-wait{background:var(--bg);color:var(--muted);border-color:var(--line)}
+.p-run{background:var(--warn-bg);color:var(--warn)}
+.p-ok{background:var(--ok-bg);color:var(--ok)}
+.p-bad{background:var(--bad-bg);color:var(--bad)}
+.tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:4px}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th{font-family:var(--f-display);text-transform:uppercase;letter-spacing:.05em;font-weight:600;text-align:left;font-size:.85rem;color:var(--muted);background:var(--bg);padding:8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td input{padding:4px 6px;font-size:.88rem;min-width:7ch}
+td.num,.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+tr.off td{opacity:.45}
+.prec{font-family:var(--f-mono);font-size:.72rem;padding:1px 6px;border-radius:3px;white-space:nowrap}
+.pr-adresse,.pr-fiche,.pr-manuel{background:var(--ok-bg);color:var(--ok)}
+.pr-rue{background:var(--warn-bg);color:var(--warn)}
+.pr-commune,.pr-inconnue,.pr-{background:var(--bad-bg);color:var(--bad)}
+.result{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:18px}
+@media (max-width:860px){.result{grid-template-columns:minmax(0,1fr)}}
+.map{border:1px solid var(--line);border-radius:4px;background:var(--bg);width:100%;aspect-ratio:1/1;max-width:100%;display:block}
+.stats{display:flex;flex-wrap:wrap;gap:22px}
+.stat b{display:block;font-family:var(--f-display);font-size:2rem;line-height:1}
+.stat span{font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+ol.route{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+ol.route li{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);align-items:start}
+ol.route li .k{font-family:var(--f-mono);font-weight:500;background:var(--ink);color:var(--bg);border-radius:50%;width:28px;height:28px;display:grid;place-items:center;font-size:.8rem}
+ol.route li.depot .k{background:var(--signal);color:var(--signal-ink);border-radius:3px}
+ol.route .t{min-width:0}
+ol.route .t b{display:block}
+ol.route .t small{color:var(--muted);display:block}
+ol.route .mv{display:flex;gap:2px}
+.links{display:flex;flex-wrap:wrap;gap:8px}
+.links a{display:inline-flex;align-items:center;gap:6px;text-decoration:none;color:var(--accent-ink);background:var(--accent);padding:7px 12px;border-radius:4px;font-weight:600;font-size:.9rem}
+.status{font-family:var(--f-mono);font-size:.82rem;color:var(--muted);min-height:1.2em}
+.badge-ex{background:var(--signal);color:var(--signal-ink);font-family:var(--f-mono);font-size:.72rem;padding:2px 8px;border-radius:3px}
+details summary{cursor:pointer;font-weight:600}
+details p{margin:.4em 0;max-width:70ch}
+.coord{display:flex;gap:4px;align-items:center}
+.coord input{width:20ch}
+a.gm{color:var(--accent);font-size:.8rem}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Tournée PAV <span class="tag">Rotation bacs</span></h1>
+      <p class="lead">Déposez les fiches de rotation, l'outil lit les adresses, place les points et calcule un ordre de passage qui évite les allers-retours.</p>
+    </div>
+    <span id="exBadge" class="badge-ex" hidden>Données d'exemple</span>
+  </header>
+
+  <section class="step" aria-labelledby="s1">
+    <h2 id="s1"><span class="n">1</span>Départ et retour du camion</h2>
+    <div class="row">
+      <label class="f grow">Adresse du dépôt
+        <input type="text" id="depotAddr" placeholder="ex. 12 rue de l'Industrie, 35000 Rennes" autocomplete="street-address">
+      </label>
+      <label class="f" style="flex:0 1 200px">Position GPS (lat, lon)
+        <input type="text" id="depotCoord" placeholder="48.1113, -1.6800">
+      </label>
+      <label class="f" style="flex:0 1 170px">Date de la tournée
+        <input type="date" id="tourDate">
+      </label>
+    </div>
+    <div class="row">
+      <button id="depotLocate">Trouver la position du dépôt</button>
+      <span class="status" id="depotStatus"></span>
+    </div>
+    <p class="hint">L'adresse est retenue sur cet appareil. Pour une position exacte, faites un clic droit sur le dépôt dans Google Maps, copiez les coordonnées et collez-les dans le champ GPS.</p>
+  </section>
+
+  <section class="step" aria-labelledby="s2">
+    <h2 id="s2"><span class="n">2</span>Fiches de rotation</h2>
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label="Ajouter des fiches">
+      <strong>Déposez les fiches ici</strong>
+      <span class="hint">Photos (JPEG, PNG) ou PDF, plusieurs à la fois. Ou cliquez pour choisir.</span>
+      <input type="file" id="fileIn" accept="image/*,application/pdf" multiple hidden>
+    </div>
+    <ul class="files" id="fileList"></ul>
+    <div class="row">
+      <button class="primary" id="readBtn" disabled>Lire les fiches</button>
+      <span class="status" id="readStatus"></span>
+    </div>
+    <p class="note" id="noAi" hidden>La lecture automatique n'est pas disponible dans cette vue. Ouvrez la page dans Claude (navigateur ou application) en étant connecté, ou saisissez les points à la main à l'étape 3.</p>
+  </section>
+
+  <section class="step" aria-labelledby="s3">
+    <h2 id="s3"><span class="n">3</span>Points de collecte</h2>
+    <p class="hint">Vérifiez ce qui a été lu. Corrigez une adresse, collez des coordonnées GPS si la précision est faible, ou décochez un point à ne pas faire.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Faire</th><th>Adresse</th><th>Commune</th><th>Flux</th><th>Bacs</th><th>Remarque</th><th>Position</th><th>Précision</th><th></th></tr></thead>
+        <tbody id="ptBody"></tbody>
+      </table>
+    </div>
+    <div class="row">
+      <button id="addPt">Ajouter un point</button>
+      <button id="geoBtn">Placer les points sans position</button>
+      <button class="ghost" id="clearPts">Tout effacer</button>
+      <span class="status" id="geoStatus"></span>
+    </div>
+  </section>
+
+  <section class="step" aria-labelledby="s4">
+    <div class="row" style="justify-content:space-between">
+      <h2 id="s4"><span class="n">4</span>Tournée</h2>
+      <button class="signal" id="optBtn">Calculer la tournée</button>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="result">
+      <div style="display:flex;flex-direction:column;gap:10px;min-width:0">
+        <svg class="map" id="map" viewBox="0 0 600 600" role="img" aria-label="Plan de la tournée"></svg>
+        <p class="hint">Plan schématique à vol d'oiseau, nord en haut. Le trajet routier réel s'ouvre dans Google Maps.</p>
+        <div class="links" id="gmLinks"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;min-width:0">
+        <div class="row">
+          <button class="primary" id="pdfBtn">Télécharger la feuille de route (PDF)</button>
+          <button id="csvBtn">Exporter en CSV</button>
+        </div>
+        <span class="status" id="dlStatus"></span>
+        <ol class="route" id="route"></ol>
+      </div>
+    </div>
+  </section>
+
+  <details>
+    <summary>Comment ça marche, et les limites de cette première version</summary>
+    <p><b>Lecture des fiches.</b> Chaque photo ou page de PDF est lue par Claude, qui en tire l'adresse, la commune, le type de flux, le nombre de bacs et les remarques utiles. Rien n'est inventé : un champ illisible reste vide.</p>
+    <p><b>Position des points.</b> Cette page ne peut pas interroger un service de cartographie. Claude estime donc la position GPS de chaque adresse et indique sa confiance. « adresse » est fiable, « rue » est approximatif, « commune » veut dire que seul le centre de la commune est connu. Pour ces derniers, collez les coordonnées depuis Google Maps.</p>
+    <p><b>Optimisation.</b> L'ordre est calculé à vol d'oiseau : départ du dépôt, plus proche voisin, puis amélioration en décroisant le trajet (2-opt) et retour au dépôt. Les kilomètres affichés sont une estimation (distance à vol d'oiseau × 1,3). Vous pouvez déplacer un arrêt avec les flèches.</p>
+    <p><b>Hypothèses à confirmer.</b> Une fiche peut contenir un ou plusieurs points. Un seul camion fait tout, sans limite de capacité ni horaires.</p>
+  </details>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+(function(){
+"use strict";
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const uid=()=>Math.random().toString(36).slice(2,9);
+const KEY="tournee-pav-v1";
+const ROAD=1.3;
+
+/* ---------- état ---------- */
+const EXAMPLE={
+  example:true,
+  depot:{adresse:"Rue de la Donelière, 35000 Rennes",lat:48.1284,lon:-1.6318,precision:"rue",example:true},
+  points:[
+    {adresse:"Place de la Mairie",commune:"Rennes",flux:"Verre",nb_bacs:2,remarque:"",lat:48.1114,lon:-1.6797,precision:"adresse"},
+    {adresse:"Boulevard de la Liberté",commune:"Rennes",flux:"Emballages",nb_bacs:1,remarque:"Stationnement en double file court",lat:48.1060,lon:-1.6790,precision:"rue"},
+    {adresse:"Place Sainte-Anne",commune:"Rennes",flux:"Verre",nb_bacs:3,remarque:"Avant 10 h (marché)",lat:48.1147,lon:-1.6800,precision:"adresse"},
+    {adresse:"Avenue Janvier",commune:"Rennes",flux:"Ordures ménagères",nb_bacs:2,remarque:"",lat:48.1059,lon:-1.6705,precision:"rue"},
+    {adresse:"Rue de Fougères",commune:"Rennes",flux:"Verre",nb_bacs:1,remarque:"",lat:48.1205,lon:-1.6610,precision:"rue"},
+    {adresse:"Place de Bretagne",commune:"Rennes",flux:"Papier",nb_bacs:2,remarque:"",lat:48.1095,lon:-1.6876,precision:"adresse"},
+    {adresse:"Rue de Saint-Malo",commune:"Rennes",flux:"Verre",nb_bacs:1,remarque:"Bac côté pair",lat:48.1175,lon:-1.6830,precision:"rue"},
+    {adresse:"Boulevard de Vitré",commune:"Rennes",flux:"Emballages",nb_bacs:2,remarque:"",lat:48.1180,lon:-1.6530,precision:"rue"}
+  ]
+};
+let S={example:false,depot:{adresse:"",lat:null,lon:null,precision:""},date:"",points:[],order:null,files:[]};
+function load(){
+  let saved=null;
+  try{saved=JSON.parse(localStorage.getItem(KEY)||"null")}catch(e){}
+  if(saved&&saved.points){S=Object.assign(S,saved);S.files=[];}
+  else{
+    S.example=true;
+    S.depot=Object.assign({},EXAMPLE.depot);
+    S.points=EXAMPLE.points.map(p=>Object.assign({id:uid(),include:true,cp:"",volume:"",reference:"",source:"exemple"},p));
+    S.order=null;
+  }
+}
+function save(){
+  try{const {files,...rest}=S;localStorage.setItem(KEY,JSON.stringify(rest))}catch(e){}
+}
+
+/* ---------- utilitaires géo ---------- */
+function parseCoord(s){
+  if(!s)return null;
+  const m=String(s).match(/(-?\d{1,2}[.,]\d+)\s*[,; ]\s*(-?\d{1,3}[.,]\d+)/);
+  if(!m)return null;
+  const lat=parseFloat(m[1].replace(",",".")),lon=parseFloat(m[2].replace(",","."));
+  if(Math.abs(lat)>90||Math.abs(lon)>180)return null;
+  return {lat,lon};
+}
+function hav(a,b){
+  const R=6371,r=Math.PI/180;
+  const dLat=(b.lat-a.lat)*r,dLon=(b.lon-a.lon)*r;
+  const h=Math.sin(dLat/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+const hasPos=p=>p&&typeof p.lat==="number"&&typeof p.lon==="number"&&isFinite(p.lat)&&isFinite(p.lon);
+const fmtC=p=>hasPos(p)?p.lat.toFixed(5)+", "+p.lon.toFixed(5):"";
+
+/* tournée fermée : nœud 0 = dépôt */
+function solve(nodes){
+  const n=nodes.length;
+  if(n<=2)return nodes.map((_,i)=>i);
+  const D=nodes.map(a=>nodes.map(b=>hav(a,b)));
+  // plus proche voisin
+  const seen=new Array(n).fill(false);seen[0]=true;
+  const t=[0];
+  for(let k=1;k<n;k++){
+    const last=t[t.length-1];let best=-1,bd=Infinity;
+    for(let j=0;j<n;j++)if(!seen[j]&&D[last][j]<bd){bd=D[last][j];best=j}
+    seen[best]=true;t.push(best);
+  }
+  t.push(0);
+  // 2-opt
+  let improved=true,guard=0;
+  while(improved&&guard++<500){
+    improved=false;
+    for(let i=1;i<t.length-2;i++){
+      for(let j=i+1;j<t.length-1;j++){
+        const a=t[i-1],b=t[i],c=t[j],d=t[j+1];
+        if(D[a][c]+D[b][d]<D[a][b]+D[c][d]-1e-9){
+          t.splice(i,j-i+1,...t.slice(i,j+1).reverse());improved=true;
+        }
+      }
+    }
+  }
+  // or-opt : déplacer un arrêt ailleurs
+  improved=true;guard=0;
+  while(improved&&guard++<200){
+    improved=false;
+    for(let i=1;i<t.length-1&&!improved;i++){
+      const x=t[i],p=t[i-1],q=t[i+1];
+      const gain=D[p][x]+D[x][q]-D[p][q];
+      for(let j=0;j<t.length-1;j++){
+        if(j===i||j===i-1)continue;
+        const a=t[j],b=t[j+1];
+        if(D[a][x]+D[x][b]-D[a][b]<gain-1e-9){
+          t.splice(i,1);const ins=j<i?j+1:j;t.splice(ins,0,x);improved=true;break;
+        }
+      }
+    }
+  }
+  return t.slice(0,-1);
+}
+
+/* ---------- Claude ---------- */
+let samplePromise=null;
+function getSample(){
+  if(!samplePromise)samplePromise=(window.claude&&window.claude.use?window.claude.use("sample"):Promise.resolve(null)).catch(()=>null);
+  return samplePromise;
+}
+function errMsg(e){
+  const c=e&&e.code;
+  if(c==="not_granted")return "accès à Claude refusé dans cette page";
+  if(c==="rate_limited")return "trop de demandes, réessayez dans une minute";
+  if(c==="images_unavailable")return "envoi d'images impossible dans cette vue";
+  if(c==="image_rejected")return "image refusée (format ou taille)";
+  return (e&&e.message)||"erreur inconnue";
+}
+
+const EXTRACT_PROMPT=`Tu lis une fiche de rotation de bacs PAV (points d'apport volontaire : colonnes ou bacs de verre, emballages, papier, ordures ménagères…), photographiée ou scannée. Une fiche peut décrire un seul point ou une liste de points.
+Extrais chaque point de collecte (un emplacement physique où le camion doit s'arrêter).
+Réponds UNIQUEMENT avec ce JSON :
+{"points":[{"adresse":"numéro et voie, ou lieu-dit, tel qu'écrit","commune":"","code_postal":"","flux":"Verre | Emballages | Papier | Ordures ménagères | Biodéchets | Textile | autre texte, ou vide","nb_bacs":nombre ou null,"volume":"ex. 4 m3, ou vide","reference":"identifiant du point ou du bac s'il existe","remarque":"infos utiles au chauffeur (accès, horaires, consignes), court","gps":"lat, lon si des coordonnées sont écrites sur la fiche, sinon vide"}],"lisible":true,"note":"problème de lecture éventuel, sinon vide"}
+N'invente rien : laisse vide tout ce qui n'est pas écrit. Si la page ne contient aucun point de collecte, renvoie "points":[].`;
+
+function geoPrompt(items,ctx){
+  return `Donne les coordonnées GPS (WGS84, degrés décimaux) des adresses françaises ci-dessous, aussi précises que tu peux.
+Contexte : le camion part de « ${ctx||"inconnu"} » ; les points sont en général dans la même zone.
+Pour chaque id, indique "precision" :
+- "adresse" si tu connais bien l'emplacement exact,
+- "rue" si tu places le point sur la bonne voie mais de façon approximative,
+- "commune" si tu ne connais que la commune (mets alors son centre),
+- "inconnue" si tu ne sais pas (lat et lon à null).
+Ne surestime pas ta précision.
+Réponds UNIQUEMENT avec ce JSON : {"r":[{"id":"…","lat":48.1,"lon":-1.6,"precision":"rue"}]}
+Adresses :
+${items.map(it=>it.id+" | "+it.q).join("\n")}`;
+}
+
+/* ---------- fichiers → images ---------- */
+function canvasToBlob(cv){return new Promise(r=>cv.toBlob(b=>r(b),"image/jpeg",0.85))}
+async function imageFileToBlob(file){
+  const url=URL.createObjectURL(file);
+  try{
+    const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error("image illisible (format HEIC ? exportez en JPEG)"));i.src=url});
+    const max=2000,sc=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
+    const cv=document.createElement("canvas");cv.width=Math.round(img.naturalWidth*sc);cv.height=Math.round(img.naturalHeight*sc);
+    const cx=cv.getContext("2d");cx.fillStyle="#fff";cx.fillRect(0,0,cv.width,cv.height);cx.drawImage(img,0,0,cv.width,cv.height);
+    return [await canvasToBlob(cv)];
+  }finally{URL.revokeObjectURL(url)}
+}
+async function pdfToBlobs(file){
+  if(!window.pdfjsLib)throw new Error("lecteur PDF non chargé");
+  pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  const buf=await file.arrayBuffer();
+  const doc=await pdfjsLib.getDocument({data:buf,isEvalSupported:false}).promise;
+  const out=[];
+  for(let i=1;i<=Math.min(doc.numPages,40);i++){
+    const page=await doc.getPage(i);
+    const v0=page.getViewport({scale:1});
+    const sc=Math.min(2.5,1800/Math.max(v0.width,v0.height));
+    const vp=page.getViewport({scale:sc});
+    const cv=document.createElement("canvas");cv.width=Math.round(vp.width);cv.height=Math.round(vp.height);
+    const cx=cv.getContext("2d");cx.fillStyle="#fff";cx.fillRect(0,0,cv.width,cv.height);
+    await page.render({canvasContext:cx,viewport:vp}).promise;
+    out.push(await canvasToBlob(cv));
+  }
+  return out;
+}
+
+/* ---------- rendu ---------- */
+function renderFiles(){
+  const ul=$("fileList");ul.innerHTML="";
+  S.files.forEach(f=>{
+    const li=document.createElement("li");
+    const cls={attente:"p-wait","en cours":"p-run",lu:"p-ok",erreur:"p-bad"}[f.status]||"p-wait";
+    li.innerHTML=`<span class="nm"></span><span class="pill ${cls}"></span><button class="ghost" aria-label="Retirer">×</button>`;
+    li.querySelector(".nm").textContent=f.file.name;li.querySelector(".nm").title=f.file.name;
+    li.querySelector(".pill").textContent=f.msg||f.status;
+    li.querySelector("button").onclick=()=>{S.files=S.files.filter(x=>x!==f);renderFiles()};
+    li.querySelector("button").disabled=f.status==="en cours";
+    ul.appendChild(li);
+  });
+  $("readBtn").disabled=busy||!S.files.some(f=>f.status==="attente"||f.status==="erreur");
+}
+function renderPoints(){
+  const tb=$("ptBody");tb.innerHTML="";
+  if(!S.points.length){
+    tb.innerHTML=`<tr><td colspan="9" class="hint" style="padding:16px">Aucun point pour l'instant. Déposez des fiches à l'étape 2 puis cliquez sur « Lire les fiches », ou ajoutez un point à la main.</td></tr>`;
+  }
+  S.points.forEach(p=>{
+    const tr=document.createElement("tr");if(!p.include)tr.className="off";
+    const gm=hasPos(p)?`<a class="gm" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lon}">voir</a>`:"";
+    tr.innerHTML=`<td><input type="checkbox" data-k="include" ${p.include?"checked":""} aria-label="Inclure"></td>
+      <td><input type="text" data-k="adresse" value="${esc(p.adresse)}" style="min-width:24ch"></td>
+      <td><input type="text" data-k="commune" value="${esc(p.commune)}"></td>
+      <td><input type="text" data-k="flux" value="${esc(p.flux)}" style="min-width:10ch"></td>
+      <td><input type="text" data-k="nb_bacs" value="${esc(p.nb_bacs??"")}" style="width:5ch;min-width:4ch"></td>
+      <td><input type="text" data-k="remarque" value="${esc(p.remarque)}" style="min-width:18ch"></td>
+      <td><span class="coord"><input type="text" data-k="coord" value="${esc(fmtC(p))}" placeholder="lat, lon">${gm}</span></td>
+      <td><span class="prec pr-${esc(p.precision||"")}">${esc(p.precision||"à placer")}</span></td>
+      <td><button class="ghost" data-del aria-label="Supprimer">×</button></td>`;
+    tr.querySelectorAll("input").forEach(inp=>{
+      inp.addEventListener("change",()=>{
+        const k=inp.dataset.k;
+        if(k==="include")p.include=inp.checked;
+        else if(k==="coord"){const c=parseCoord(inp.value);if(c){p.lat=c.lat;p.lon=c.lon;p.precision="manuel"}else if(!inp.value.trim()){p.lat=p.lon=null;p.precision=""}else{inp.value=fmtC(p);return}}
+        else if(k==="nb_bacs"){const v=parseInt(inp.value,10);p.nb_bacs=isNaN(v)?null:v}
+        else{ if((k==="adresse"||k==="commune")&&p[k]!==inp.value&&p.precision!=="manuel"){p.lat=p.lon=null;p.precision=""} p[k]=inp.value}
+        markExampleEdited();S.order=null;save();renderPoints();renderRoute();
+      });
+    });
+    tr.querySelector("[data-del]").onclick=()=>{S.points=S.points.filter(x=>x!==p);S.order=null;markExampleEdited();save();renderPoints();renderRoute()};
+    tb.appendChild(tr);
+  });
+  $("exBadge").hidden=!S.example;
+}
+function markExampleEdited(){}
+function dropExample(){
+  if(S.example){S.points=S.points.filter(p=>p.source!=="exemple");S.example=false;S.order=null}
+  if(S.depot.example)S.depot={adresse:"",lat:null,lon:null,precision:""};
+  fillDepot();renderPoints();renderRoute();
+}
+
+function currentStops(){
+  const pts=S.points.filter(p=>p.include);
+  if(S.order){
+    const m=new Map(pts.map(p=>[p.id,p]));
+    const ord=S.order.map(id=>m.get(id)).filter(Boolean);
+    pts.forEach(p=>{if(!ord.includes(p))ord.push(p)});
+    return ord;
+  }
+  return pts;
+}
+function legs(stops){
+  const d=S.depot;let km=0;const seq=[d,...stops,d];const seg=[];
+  for(let i=0;i<seq.length-1;i++){
+    const a=seq[i],b=seq[i+1];
+    const v=hasPos(a)&&hasPos(b)?hav(a,b)*ROAD:null;seg.push(v);if(v!=null)km+=v;
+  }
+  return {km,seg};
+}
+function placeName(p){return [p.adresse,p.cp,p.commune].filter(Boolean).join(", ")}
+function gmQuery(p){return hasPos(p)&&p.precision!=="commune"&&p.precision!=="inconnue"?p.lat.toFixed(6)+","+p.lon.toFixed(6):placeName(p)}
+
+function renderRoute(){
+  const stops=currentStops();
+  const placed=stops.filter(hasPos);
+  const {km,seg}=legs(stops);
+  const bacs=stops.reduce((s,p)=>s+(p.nb_bacs||0),0);
+  const lowPrec=stops.filter(p=>!hasPos(p)||p.precision==="commune"||p.precision==="inconnue").length;
+  $("stats").innerHTML=`<div class="stat"><b class="mono">${stops.length}</b><span>arrêts</span></div>
+    <div class="stat"><b class="mono">${bacs||"–"}</b><span>bacs</span></div>
+    <div class="stat"><b class="mono">${S.order&&hasPos(S.depot)?"≈ "+km.toFixed(1)+" km":"–"}</b><span>distance estimée</span></div>
+    ${lowPrec?`<div class="stat"><b class="mono" style="color:var(--bad)">${lowPrec}</b><span>position à vérifier</span></div>`:""}`;
+  // liste
+  const ol=$("route");ol.innerHTML="";
+  if(!S.order){
+    ol.innerHTML=`<li style="display:block" class="hint">Cliquez sur « Calculer la tournée » pour obtenir l'ordre de passage.</li>`;
+  }else{
+    const dep=document.createElement("li");dep.className="depot";
+    dep.innerHTML=`<span class="k">D</span><span class="t"><b></b><small>Départ</small></span><span></span>`;
+    dep.querySelector("b").textContent=S.depot.adresse||"Dépôt";ol.appendChild(dep);
+    stops.forEach((p,i)=>{
+      const li=document.createElement("li");
+      li.innerHTML=`<span class="k">${i+1}</span><span class="t"><b></b><small class="a"></small><small class="b"></small></span>
+        <span class="mv"><button class="ghost" data-u aria-label="Monter" ${i===0?"disabled":""}>▲</button><button class="ghost" data-d aria-label="Descendre" ${i===stops.length-1?"disabled":""}>▼</button></span>`;
+      li.querySelector("b").textContent=placeName(p)||"(adresse vide)";
+      li.querySelector(".a").textContent=[p.flux,p.nb_bacs?p.nb_bacs+" bac"+(p.nb_bacs>1?"s":""):"",p.volume,p.reference?"réf. "+p.reference:""].filter(Boolean).join(" · ");
+      li.querySelector(".b").textContent=[p.remarque,seg[i]!=null?"+"+seg[i].toFixed(1)+" km":""].filter(Boolean).join(" · ");
+      li.querySelector("[data-u]").onclick=()=>move(i,-1);
+      li.querySelector("[data-d]").onclick=()=>move(i,1);
+      ol.appendChild(li);
+    });
+    const ret=document.createElement("li");ret.className="depot";
+    ret.innerHTML=`<span class="k">D</span><span class="t"><b></b><small></small></span><span></span>`;
+    ret.querySelector("b").textContent=S.depot.adresse||"Dépôt";
+    ret.querySelector("small").textContent="Retour"+(seg[stops.length]!=null?" · +"+seg[stops.length].toFixed(1)+" km":"");
+    ol.appendChild(ret);
+  }
+  renderMap(stops);
+  renderLinks(stops);
+  $("pdfBtn").disabled=!S.order;$("csvBtn").disabled=!S.order;
+}
+function move(i,dir){
+  const stops=currentStops();const j=i+dir;if(j<0||j>=stops.length)return;
+  [stops[i],stops[j]]=[stops[j],stops[i]];S.order=stops.map(p=>p.id);save();renderRoute();
+}
+function renderMap(stops){
+  const svg=$("map");
+  const all=[S.depot,...stops].filter(hasPos);
+  if(!all.length){svg.innerHTML=`<text x="300" y="300" text-anchor="middle" fill="var(--muted)" font-family="Barlow, sans-serif" font-size="18">Aucun point placé</text>`;return}
+  const lat0=all.reduce((s,p)=>s+p.lat,0)/all.length,k=Math.cos(lat0*Math.PI/180);
+  const xs=all.map(p=>p.lon*k),ys=all.map(p=>p.lat);
+  let minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+  let span=Math.max(maxX-minX,maxY-minY,0.004);
+  const cxm=(minX+maxX)/2,cym=(minY+maxY)/2,pad=46,W=600-2*pad;
+  const P=p=>[pad+((p.lon*k-cxm)/span+0.5)*W,pad+(0.5-(p.lat-cym)/span)*W];
+  let h="";
+  // échelle
+  const kmSpan=span*111.32,target=kmSpan/4;const nice=[0.1,0.2,0.5,1,2,5,10,20,50,100].find(v=>v>=target)||100;
+  const px=nice/kmSpan*W;
+  h+=`<g font-family="IBM Plex Mono, monospace" font-size="12" fill="var(--muted)"><line x1="20" y1="578" x2="${20+px}" y2="578" stroke="var(--muted)" stroke-width="2"/><text x="${24+px}" y="582">${nice<1?nice*1000+" m":nice+" km"}</text><text x="572" y="30" text-anchor="middle">N</text><path d="M572 36 l-6 14 h12z" fill="var(--muted)"/></g>`;
+  if(S.order){
+    const seq=[S.depot,...stops,S.depot].filter(hasPos).map(P);
+    h+=`<polyline points="${seq.map(q=>q.map(v=>v.toFixed(1)).join(",")).join(" ")}" fill="none" stroke="var(--route)" stroke-width="3" stroke-linejoin="round" opacity=".85"/>`;
+    for(let i=0;i<seq.length-1;i++){
+      const [x1,y1]=seq[i],[x2,y2]=seq[i+1];const mx=(x1+x2)/2,my=(y1+y2)/2,a=Math.atan2(y2-y1,x2-x1)*180/Math.PI;
+      if(Math.hypot(x2-x1,y2-y1)>40)h+=`<path d="M-6,-5 L4,0 L-6,5z" fill="var(--route)" transform="translate(${mx.toFixed(1)},${my.toFixed(1)}) rotate(${a.toFixed(0)})"/>`;
+    }
+  }
+  stops.forEach((p,i)=>{
+    if(!hasPos(p))return;const [x,y]=P(p);
+    const weak=p.precision==="commune"||p.precision==="inconnue";
+    h+=`<g><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="13" fill="var(--pt)" stroke="${weak?"var(--bad)":"var(--surface)"}" stroke-width="${weak?3:2}"/><text x="${x.toFixed(1)}" y="${(y+4.5).toFixed(1)}" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="500" fill="var(--bg)">${S.order?i+1:"•"}</text></g>`;
+  });
+  if(hasPos(S.depot)){const [x,y]=P(S.depot);h+=`<g><rect x="${(x-14).toFixed(1)}" y="${(y-14).toFixed(1)}" width="28" height="28" rx="3" fill="var(--signal)" stroke="var(--ink)" stroke-width="1.5"/><text x="${x.toFixed(1)}" y="${(y+5).toFixed(1)}" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="13" font-weight="500" fill="var(--signal-ink)">D</text></g>`}
+  svg.innerHTML=h;
+}
+function renderLinks(stops){
+  const box=$("gmLinks");box.innerHTML="";
+  if(!S.order||!stops.length)return;
+  const dq=hasPos(S.depot)?S.depot.lat.toFixed(6)+","+S.depot.lon.toFixed(6):S.depot.adresse;
+  const seq=[{q:dq},...stops.map(p=>({q:gmQuery(p)})),{q:dq}];
+  const per=8;let part=1;
+  for(let s=0;s<seq.length-1;s+=per+1){
+    const chunk=seq.slice(s,Math.min(s+per+2,seq.length));
+    if(chunk.length<2)break;
+    const o=chunk[0].q,d=chunk[chunk.length-1].q,w=chunk.slice(1,-1).map(c=>c.q).join("|");
+    const url="https://www.google.com/maps/dir/?api=1&travelmode=driving&origin="+encodeURIComponent(o)+"&destination="+encodeURIComponent(d)+(w?"&waypoints="+encodeURIComponent(w):"");
+    const a=document.createElement("a");a.href=url;a.target="_blank";a.rel="noopener";
+    const from=s===0?"D":String(s),to=s+chunk.length-1>stops.length?"D":String(s+chunk.length-1);
+    a.textContent=`Itinéraire Google Maps ${seq.length>per+2?"("+from+" → "+to+")":""}`.trim();
+    box.appendChild(a);part++;
+  }
+}
+
+/* ---------- actions ---------- */
+let busy=false;
+function addFiles(list){
+  for(const f of list){
+    const ok=/^image\//.test(f.type)||f.type==="application/pdf"||/\.(pdf|jpe?g|png|webp|heic)$/i.test(f.name);
+    if(ok)S.files.push({file:f,status:"attente",msg:""});
+  }
+  renderFiles();
+}
+async function readAll(){
+  const sample=await getSample();
+  if(!sample){$("noAi").hidden=false;return}
+  let lim=null;try{lim=await sample.limits()}catch(e){}
+  if(!lim||!lim.images){$("readStatus").textContent="L'envoi d'images à Claude n'est pas possible dans cette vue.";return}
+  busy=true;renderFiles();
+  dropExample();
+  let added=0;
+  const todo=S.files.filter(f=>f.status==="attente"||f.status==="erreur");
+  for(const f of todo){
+    f.status="en cours";f.msg="préparation";renderFiles();
+    try{
+      const isPdf=f.file.type==="application/pdf"||/\.pdf$/i.test(f.file.name);
+      const blobs=isPdf?await pdfToBlobs(f.file):await imageFileToBlob(f.file);
+      let n=0;
+      for(let i=0;i<blobs.length;i++){
+        f.msg=blobs.length>1?`page ${i+1}/${blobs.length}`:"lecture";renderFiles();
+        $("readStatus").textContent=`Lecture de ${f.file.name}${blobs.length>1?" page "+(i+1):""}…`;
+        const r=await sample.json(EXTRACT_PROMPT+(blobs.length>1?`\n(Page ${i+1} sur ${blobs.length} du document « ${f.file.name} ».)`:""),{images:[blobs[i]],modelTier:"default"});
+        const pts=(r&&Array.isArray(r.points))?r.points:[];
+        for(const q of pts){
+          if(!q||!(q.adresse||q.commune))continue;
+          const c=parseCoord(q.gps);
+          S.points.push({id:uid(),include:true,adresse:String(q.adresse||"").trim(),commune:String(q.commune||"").trim(),cp:String(q.code_postal||"").trim(),
+            flux:String(q.flux||"").trim(),nb_bacs:Number.isFinite(+q.nb_bacs)&&q.nb_bacs!==null&&q.nb_bacs!==""?+q.nb_bacs:null,volume:String(q.volume||""),reference:String(q.reference||""),
+            remarque:String(q.remarque||""),lat:c?c.lat:null,lon:c?c.lon:null,precision:c?"fiche":"",source:f.file.name});
+          n++;added++;
+        }
+        save();renderPoints();
+      }
+      f.status=n?"lu":"erreur";f.msg=n?`${n} point${n>1?"s":""}`:"aucun point trouvé";
+    }catch(e){f.status="erreur";f.msg=errMsg(e);if(e&&e.code==="rate_limited"){renderFiles();break}}
+    renderFiles();
+  }
+  dedupe();
+  busy=false;S.order=null;save();renderFiles();renderPoints();renderRoute();
+  $("readStatus").textContent=added?`${added} point${added>1?"s":""} lu${added>1?"s":""}. Placement sur la carte…`:"Aucun point lu.";
+  if(added)await geocode();
+}
+function dedupe(){
+  const norm=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"");
+  const seen=new Map();const out=[];
+  for(const p of S.points){
+    const k=norm(p.adresse)+"|"+norm(p.commune)+"|"+norm(p.flux);
+    if(seen.has(k)){const q=seen.get(k);if(p.nb_bacs)q.nb_bacs=(q.nb_bacs||0)+p.nb_bacs;if(p.remarque&&!q.remarque.includes(p.remarque))q.remarque=[q.remarque,p.remarque].filter(Boolean).join(" ; ");continue}
+    seen.set(k,p);out.push(p);
+  }
+  S.points=out;
+}
+async function geocode(){
+  const sample=await getSample();
+  if(!sample){$("noAi").hidden=false;$("geoStatus").textContent="Collez les coordonnées GPS à la main.";return}
+  const need=S.points.filter(p=>!hasPos(p)&&(p.adresse||p.commune));
+  const depNeed=!hasPos(S.depot)&&S.depot.adresse;
+  if(!need.length&&!depNeed){$("geoStatus").textContent="Tous les points ont une position.";return}
+  $("geoBtn").disabled=true;
+  const items=need.map(p=>({id:p.id,q:placeName(p),p}));
+  if(depNeed)items.unshift({id:"DEPOT",q:S.depot.adresse,p:S.depot});
+  let done=0;
+  try{
+    for(let s=0;s<items.length;s+=25){
+      const chunk=items.slice(s,s+25);
+      $("geoStatus").textContent=`Placement des points ${s+1}–${s+chunk.length} sur ${items.length}…`;
+      const r=await sample.json(geoPrompt(chunk,S.depot.adresse),{modelTier:"complex"});
+      const arr=(r&&Array.isArray(r.r))?r.r:[];
+      for(const g of arr){
+        const it=chunk.find(c=>c.id===g.id);if(!it)continue;
+        const lat=+g.lat,lon=+g.lon;
+        if(g.lat!=null&&isFinite(lat)&&isFinite(lon)&&Math.abs(lat)<=90){it.p.lat=lat;it.p.lon=lon;it.p.precision=String(g.precision||"rue");done++}
+        else it.p.precision="inconnue";
+      }
+      save();fillDepot();renderPoints();
+    }
+    // garde-fou : point à plus de 60 km du dépôt
+    if(hasPos(S.depot))S.points.forEach(p=>{if(hasPos(p)&&hav(p,S.depot)>60&&p.precision!=="manuel"&&p.precision!=="fiche")p.precision="commune"});
+    $("geoStatus").textContent=`${done} position${done>1?"s":""} estimée${done>1?"s":""}. Vérifiez celles en rouge ou orange.`;
+  }catch(e){$("geoStatus").textContent="Placement interrompu : "+errMsg(e)}
+  $("geoBtn").disabled=false;save();fillDepot();renderPoints();renderRoute();
+}
+function optimize(){
+  const pts=S.points.filter(p=>p.include);
+  if(!pts.length){$("dlStatus").textContent="Aucun point à inclure.";return}
+  if(!hasPos(S.depot)){$("dlStatus").textContent="Indiquez d'abord la position du dépôt (étape 1).";$("depotCoord").focus();return}
+  const placed=pts.filter(hasPos),unplaced=pts.filter(p=>!hasPos(p));
+  const nodes=[S.depot,...placed];
+  const t=solve(nodes);
+  S.order=t.slice(1).map(i=>placed[i-1].id).concat(unplaced.map(p=>p.id));
+  $("dlStatus").textContent=unplaced.length?`${unplaced.length} point${unplaced.length>1?"s":""} sans position, placé${unplaced.length>1?"s":""} en fin de liste.`:"";
+  save();renderRoute();
+}
+
+/* ---------- exports ---------- */
+async function getDownloads(){try{return window.claude&&window.claude.use?await window.claude.use("downloads"):null}catch(e){return null}}
+function fileStamp(){return (S.date||new Date().toISOString().slice(0,10))}
+async function saveFile(filename,data){
+  const dl=await getDownloads();
+  if(!dl){$("dlStatus").textContent="Le téléchargement n'est pas disponible dans cette vue.";return}
+  try{const r=await dl.save({filename,data});$("dlStatus").textContent=r&&r.status==="saved"?"Fichier enregistré : "+filename:"Fichier transmis : "+filename}
+  catch(e){$("dlStatus").textContent=e&&e.code==="cancelled"?"Téléchargement annulé.":"Téléchargement impossible : "+((e&&e.message)||"erreur")}
+}
+function csv(){
+  const stops=currentStops();const {seg}=legs(stops);
+  const q=v=>'"'+String(v??"").replace(/"/g,'""')+'"';
+  const rows=[["Ordre","Adresse","Code postal","Commune","Flux","Bacs","Volume","Référence","Remarque","Latitude","Longitude","Précision","Km depuis l'arrêt précédent"]];
+  stops.forEach((p,i)=>rows.push([i+1,p.adresse,p.cp,p.commune,p.flux,p.nb_bacs??"",p.volume,p.reference,p.remarque,hasPos(p)?p.lat:"",hasPos(p)?p.lon:"",p.precision,seg[i]!=null?seg[i].toFixed(1).replace(".",","):""]));
+  return "﻿"+rows.map(r=>r.map(q).join(";")).join("\r\n");
+}
+async function mapPng(){
+  const svg=$("map");const cs=getComputedStyle(document.documentElement);
+  let src=new XMLSerializer().serializeToString(svg);
+  // couleurs fixes pour l'impression
+  const fix={"--route":"#0f6b4f","--pt":"#17251f","--surface":"#ffffff","--bg":"#ffffff","--muted":"#5b6b63","--bad":"#b42318","--signal":"#f2a900","--signal-ink":"#2a1f00","--ink":"#17251f"};
+  src=src.replace(/var\((--[a-z-]+)\)/g,(m,v)=>fix[v]||"#000");
+  if(!/xmlns=/.test(src))src=src.replace("<svg","<svg xmlns=\"http://www.w3.org/2000/svg\"");
+  src=src.replace("<svg",'<svg width="1200" height="1200"');
+  const url="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(src);
+  const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=url});
+  const cv=document.createElement("canvas");cv.width=1200;cv.height=1200;const cx=cv.getContext("2d");
+  cx.fillStyle="#fff";cx.fillRect(0,0,1200,1200);cx.drawImage(img,0,0,1200,1200);
+  return cv.toDataURL("image/jpeg",0.88);
+}
+async function pdf(){
+  if(!window.jspdf){$("dlStatus").textContent="Générateur PDF non chargé, utilisez l'export CSV.";return}
+  const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:"mm",format:"a4"});
+  const stops=currentStops();const {km,seg}=legs(stops);
+  const M=14,W=210-2*M;let y=16;
+  const dateTxt=S.date?new Date(S.date+"T12:00").toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"}):"";
+  doc.setFont("helvetica","bold");doc.setFontSize(18);doc.text("Feuille de route - tournée PAV",M,y);
+  doc.setFont("helvetica","normal");doc.setFontSize(10);y+=6;
+  doc.text([dateTxt,`${stops.length} arrêts · ${stops.reduce((s,p)=>s+(p.nb_bacs||0),0)} bacs · environ ${km.toFixed(1)} km`].filter(Boolean).join("   "),M,y);y+=5;
+  doc.text("Départ et retour : "+(S.depot.adresse||fmtC(S.depot)),M,y);y+=6;
+  try{const png=await mapPng();doc.addImage(png,"JPEG",M+W/2-45,y,90,90);y+=93}catch(e){}
+  const cols=[{h:"",w:7},{h:"N°",w:9},{h:"Adresse",w:62},{h:"Flux",w:28},{h:"Bacs",w:12},{h:"Remarque",w:52},{h:"Km",w:12}];
+  const head=()=>{doc.setFillColor(23,37,31);doc.rect(M,y,W,7,"F");doc.setTextColor(255);doc.setFont("helvetica","bold");doc.setFontSize(9);let x=M;cols.forEach(c=>{doc.text(c.h,x+1.5,y+4.8);x+=c.w});doc.setTextColor(0);doc.setFont("helvetica","normal");y+=7};
+  head();
+  const rows=[["","D",S.depot.adresse||"Dépôt","Départ","","",""]].concat(stops.map((p,i)=>["☐",String(i+1),[placeName(p),p.reference?"réf. "+p.reference:""].filter(Boolean).join(" - "),p.flux||"",p.nb_bacs!=null?String(p.nb_bacs):"",p.remarque||"",seg[i]!=null?seg[i].toFixed(1):""])).concat([["","D",S.depot.adresse||"Dépôt","Retour","","",seg[stops.length]!=null?seg[stops.length].toFixed(1):""]]);
+  doc.setFontSize(9);
+  rows.forEach((r,ri)=>{
+    const cells=r.map((v,ci)=>ci===0?[""]:doc.splitTextToSize(String(v),cols[ci].w-3));
+    const h=Math.max(7,Math.max(...cells.map(c=>c.length))*4+3);
+    if(y+h>285){doc.addPage();y=16;head()}
+    if(ri%2===1){doc.setFillColor(243,245,242);doc.rect(M,y,W,h,"F")}
+    let x=M;cells.forEach((c,ci)=>{
+      if(ci===0&&r[0]){doc.setDrawColor(60);doc.rect(x+1.5,y+1.8,3.6,3.6)}
+      else doc.text(c,x+1.5,y+4.8);
+      x+=cols[ci].w});
+    doc.setDrawColor(213,221,216);doc.line(M,y+h,M+W,y+h);y+=h;
+  });
+  y+=6;if(y>280){doc.addPage();y=16}
+  doc.setFontSize(8);doc.setTextColor(90);
+  doc.text("Distances estimées à vol d'oiseau × 1,3. Ordre calculé pour limiter les allers-retours.",M,y);
+  await saveFile(`tournee-pav-${fileStamp()}.pdf`,doc.output("blob"));
+}
+
+/* ---------- dépôt ---------- */
+function fillDepot(){
+  $("depotAddr").value=S.depot.adresse||"";
+  $("depotCoord").value=fmtC(S.depot);
+  $("tourDate").value=S.date||"";
+  $("depotStatus").textContent=hasPos(S.depot)?(S.depot.precision==="manuel"?"Position saisie à la main.":"Position estimée ("+(S.depot.precision||"?")+"). Collez les coordonnées exactes si besoin."):(S.depot.adresse?"Position du dépôt à trouver.":"");
+}
+$("depotAddr").addEventListener("change",e=>{S.depot.adresse=e.target.value.trim();delete S.depot.example;if(S.depot.precision!=="manuel"){S.depot.lat=S.depot.lon=null;S.depot.precision=""}S.order=null;save();fillDepot();renderRoute();renderPoints()});
+$("depotCoord").addEventListener("change",e=>{delete S.depot.example;const c=parseCoord(e.target.value);if(c){S.depot.lat=c.lat;S.depot.lon=c.lon;S.depot.precision="manuel"}else if(!e.target.value.trim()){S.depot.lat=S.depot.lon=null;S.depot.precision=""}S.order=null;save();fillDepot();renderRoute()});
+$("tourDate").addEventListener("change",e=>{S.date=e.target.value;save()});
+$("depotLocate").onclick=async()=>{
+  if(!S.depot.adresse){$("depotStatus").textContent="Saisissez d'abord l'adresse du dépôt.";$("depotAddr").focus();return}
+  const sample=await getSample();if(!sample){$("depotStatus").textContent="Collez les coordonnées GPS à la main.";return}
+  $("depotStatus").textContent="Recherche…";
+  try{
+    const r=await sample.json(geoPrompt([{id:"DEPOT",q:S.depot.adresse}],""),{modelTier:"complex"});
+    const g=r&&r.r&&r.r[0];
+    if(g&&g.lat!=null&&isFinite(+g.lat)){S.depot.lat=+g.lat;S.depot.lon=+g.lon;S.depot.precision=String(g.precision||"rue")}else{S.depot.precision="inconnue"}
+  }catch(e){$("depotStatus").textContent=errMsg(e);return}
+  S.order=null;save();fillDepot();renderRoute();
+};
+
+/* ---------- liaisons ---------- */
+const drop=$("drop"),fileIn=$("fileIn");
+drop.onclick=()=>fileIn.click();
+drop.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();fileIn.click()}};
+fileIn.onchange=()=>{addFiles(fileIn.files);fileIn.value=""};
+["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over")}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over")}));
+drop.addEventListener("drop",e=>addFiles(e.dataTransfer.files));
+document.addEventListener("paste",e=>{const fs=[...(e.clipboardData?.files||[])];if(fs.length)addFiles(fs)});
+$("readBtn").onclick=readAll;
+$("geoBtn").onclick=geocode;
+$("optBtn").onclick=optimize;
+$("addPt").onclick=()=>{if(S.example)dropExample();S.points.push({id:uid(),include:true,adresse:"",commune:"",cp:"",flux:"",nb_bacs:null,volume:"",reference:"",remarque:"",lat:null,lon:null,precision:"",source:"manuel"});S.order=null;save();renderPoints();renderRoute();const ins=$("ptBody").querySelectorAll('input[data-k="adresse"]');ins[ins.length-1]?.focus()};
+let clearArm=false;
+$("clearPts").onclick=()=>{
+  if(!clearArm){clearArm=true;$("clearPts").textContent="Confirmer l'effacement";setTimeout(()=>{clearArm=false;$("clearPts").textContent="Tout effacer"},4000);return}
+  clearArm=false;$("clearPts").textContent="Tout effacer";
+  if(S.example){S.depot={adresse:"",lat:null,lon:null,precision:""}}
+  S.example=false;S.points=[];S.order=null;save();fillDepot();renderPoints();renderRoute();
+};
+$("csvBtn").onclick=()=>saveFile(`tournee-pav-${fileStamp()}.csv`,csv());
+$("pdfBtn").onclick=pdf;
+
+load();
+if(S.example&&!S.order){const placed=S.points.filter(hasPos);const t=solve([S.depot,...placed]);S.order=t.slice(1).map(i=>placed[i-1].id)}
+fillDepot();renderFiles();renderPoints();renderRoute();
+getSample().then(s=>{if(!s)$("noAi").hidden=false});
+})();
+</script>
