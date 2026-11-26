@@ -123,12 +123,14 @@ details#cfgAvance input{margin-top:6px}
     <h2><span class="n">2</span>Fiches de rotation</h2>
     <div class="drop" id="drop">
       <strong>Déposez les fiches ici</strong>
-      <span class="hint">PDF, photos, Excel ou CSV, plusieurs à la fois</span>
+      <span class="hint">Plusieurs à la fois : touchez chaque photo pour la cocher, puis validez. Dans le gestionnaire de fichiers, faites un appui long sur le premier fichier pour en cocher plusieurs.</span>
       <div class="row" style="justify-content:center">
-        <button id="choisir">Choisir des fichiers</button>
-        <button id="photo">Prendre une photo</button>
+        <button id="choisirPhotos" class="primary">🖼 Choisir des photos</button>
+        <button id="photo">📷 Prendre une photo</button>
+        <button id="choisir">📄 PDF ou Excel</button>
       </div>
       <input type="file" id="fIn" accept="image/*,application/pdf,.xlsx,.xls,.ods,.csv,text/csv" multiple hidden>
+      <input type="file" id="phIn" accept="image/*" multiple hidden>
       <input type="file" id="pIn" accept="image/*" capture="environment" hidden>
     </div>
     <ul class="files" id="files"></ul>
