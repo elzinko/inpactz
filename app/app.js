@@ -37,7 +37,9 @@ function typeDe(f) {
 }
 
 let ocrWorker = null;
-async function ocr(image, progression) {
+async function ocr(image, progression) { return (await ocrDetail(image, progression)).texte; }
+/** Texte lu + confiance moyenne de Tesseract (0-100). Une photo à l'envers ou de travers donne une confiance basse. */
+async function ocrDetail(image, progression = () => {}) {
   if (!ocrWorker) {
     progression("préparation de l'OCR");
     ocrWorker = await Tesseract.createWorker("fra", 1, {
@@ -50,7 +52,7 @@ async function ocr(image, progression) {
     await ocrWorker.setParameters({ tessedit_pageseg_mode: "4", preserve_interword_spaces: "1" });
   }
   const r = await ocrWorker.recognize(image);
-  return r.data.text;
+  return { texte: r.data.text, conf: r.data.confidence || 0 };
 }
 
 /** Texte d'un PDF en gardant les colonnes : les blocs éloignés sont séparés par plusieurs espaces. */
@@ -109,13 +111,40 @@ async function imagePourOcr(f, rot = 0) {
     const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("image illisible")); i.src = url; });
     const max = 2600, sc = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
     const w = Math.round(img.naturalWidth * sc), h = Math.round(img.naturalHeight * sc);
-    const debout = rot % 180 === 0;
-    const cv = document.createElement("canvas"); cv.width = debout ? w : h; cv.height = debout ? h : w;
-    const cx = cv.getContext("2d", { willReadFrequently: true }); cx.fillStyle = "#fff"; cx.fillRect(0, 0, cv.width, cv.height);
-    cx.translate(cv.width / 2, cv.height / 2); cx.rotate((rot * Math.PI) / 180); cx.drawImage(img, -w / 2, -h / 2, w, h);
-    contraste(cx, cv.width, cv.height);
-    return cv;
+    const rendre = (deg) => {
+      const a = (deg * Math.PI) / 180, c = Math.abs(Math.cos(a)), sn = Math.abs(Math.sin(a));
+      const cv = document.createElement("canvas"); cv.width = Math.round(w * c + h * sn); cv.height = Math.round(w * sn + h * c);
+      const cx = cv.getContext("2d", { willReadFrequently: true }); cx.fillStyle = "#fff"; cx.fillRect(0, 0, cv.width, cv.height);
+      cx.translate(cv.width / 2, cv.height / 2); cx.rotate(a); cx.drawImage(img, -w / 2, -h / 2, w, h);
+      contraste(cx, cv.width, cv.height);
+      return cv;
+    };
+    const cv = rendre(rot);
+    // Redresse une photo légèrement penchée (jusqu'à ±8°).
+    const penche = inclinaison(cv);
+    return Math.abs(penche) >= 0.5 ? rendre(rot - penche) : cv;
   } finally { URL.revokeObjectURL(url); }
+}
+/** Estime l'inclinaison des lignes de texte (en degrés) : l'angle qui rend les lignes les plus nettes
+    quand on additionne les pixels sombres ligne par ligne (méthode des profils de projection). */
+function inclinaison(src) {
+  const W = 500, k = W / src.width, H = Math.max(1, Math.round(src.height * k));
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const cx = c.getContext("2d", { willReadFrequently: true }); cx.drawImage(src, 0, 0, W, H);
+  const px = cx.getImageData(0, 0, W, H).data, xs = [], ys = [];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (px[(y * W + x) * 4] < 110) { xs.push(x - W / 2); ys.push(y); }
+  if (xs.length < 200) return 0;
+  const note = (deg) => {
+    const t = Math.tan((deg * Math.PI) / 180), off = W, bins = new Float64Array(H + 2 * off);
+    for (let i = 0; i < xs.length; i++) bins[Math.round(ys[i] - xs[i] * t) + off]++;
+    let s = 0; for (let i = 1; i < bins.length; i++) { const d = bins[i] - bins[i - 1]; s += d * d; }
+    return s;
+  };
+  let best = 0, bestNote = note(0);
+  for (let d = -8; d <= 8; d += 0.5) { if (!d) continue; const n = note(d); if (n > bestNote * 1.02) { bestNote = n; best = d; } }
+  // Affinage autour du meilleur angle.
+  for (let d = best - 0.4; d <= best + 0.4; d += 0.2) { const n = note(d); if (n > bestNote) { bestNote = n; best = d; } }
+  return Math.round(best * 10) / 10;
 }
 /** Niveaux de gris + étirement des niveaux (photo sombre ou délavée). */
 function contraste(cx, w, h) {
@@ -131,20 +160,24 @@ function contraste(cx, w, h) {
 
 /* Lit un fichier. Pour une photo sans adresse reconnue, on réessaie automatiquement
    en la pivotant (photo prise de travers ou à l'envers). */
-async function lireFichier(f, progression, rot = 0) {
+async function lireFichier(f, progression, rot = 0, manuel = false) {
   const t = typeDe(f);
   if (t === "heic") throw new Error("Format HEIC : réglez l'appareil photo en « Le plus compatible » (JPEG).");
   if (t === "classeur") return { points: JSON.parse(moteur.lire_classeur(new Uint8Array(await f.arrayBuffer()), f.name)), texte: "", methode: "Excel" };
   if (t === "csv") return { points: JSON.parse(moteur.lire_csv(await f.text(), f.name)), texte: "", methode: "CSV" };
   if (t === "pdf") { const { texte } = await textePdf(await f.arrayBuffer(), progression); return { points: JSON.parse(moteur.analyser_texte(texte, f.name)), texte, methode: "PDF" }; }
+  // Lecture dans le sens actuel. Si elle est douteuse (aucune adresse ou confiance faible),
+  // on essaie les 3 autres sens et on garde le meilleur. Une rotation choisie à la main est respectée.
+  const essais = manuel ? [rot] : [rot, (rot + 90) % 360, (rot + 270) % 360, (rot + 180) % 360];
+  const note = (x) => x.conf + 12 * Math.min(x.points.length, 5);
   let meilleur = null;
-  for (const r of [rot, (rot + 90) % 360, (rot + 270) % 360, (rot + 180) % 360]) {
-    progression(r === rot ? "OCR" : "OCR, essai en tournant la photo");
-    const texte = await ocr(await imagePourOcr(f, r), progression);
+  for (const [i, r] of essais.entries()) {
+    progression(i === 0 ? "OCR" : `OCR, essai ${i + 1}/4 en tournant la photo`);
+    const { texte, conf } = await ocrDetail(await imagePourOcr(f, r), progression);
     const points = JSON.parse(moteur.analyser_texte(texte, f.name));
-    const res = { points, texte, methode: r === rot ? "OCR" : "OCR, photo redressée", rot: r };
-    if (!meilleur || points.length > meilleur.points.length) meilleur = res;
-    if (points.length) break;
+    const res = { points, texte, conf, rot: r, methode: r === rot ? "OCR" : "OCR, photo redressée" };
+    if (!meilleur || note(res) > note(meilleur)) meilleur = res;
+    if (points.length && conf >= (i === 0 ? 65 : 75)) break;
   }
   return meilleur;
 }
@@ -368,7 +401,7 @@ const BD = (() => {
   }));
   const tx = async (mode, fn) => { const db = await ouvrir(); return new Promise((ok, ko) => { const t = db.transaction("f", mode); const r = fn(t.objectStore("f")); t.oncomplete = () => ok(r && r.result); t.onerror = () => ko(t.error); }); };
   return {
-    mettre: (x) => tx("readwrite", (s) => s.put({ id: x.id, f: x.f, nom: x.f.name, st: x.st, res: x.res, err: x.err || null, n: x.n, rot: x.rot || 0, pids: x.pids || [] })).catch(() => {}),
+    mettre: (x) => tx("readwrite", (s) => s.put({ id: x.id, f: x.f, nom: x.f.name, st: x.st, res: x.res, err: x.err || null, n: x.n, rot: x.rot || 0, rotManuelle: !!x.rotManuelle, pids: x.pids || [] })).catch(() => {}),
     retirer: (id) => tx("readwrite", (s) => s.delete(id)).catch(() => {}),
     vider: () => tx("readwrite", (s) => s.clear()).catch(() => {}),
     tout: () => tx("readonly", (s) => s.getAll()).catch(() => []),
@@ -384,7 +417,7 @@ async function restaurerFichiers() {
   l.sort((a, b) => a.n - b.n);
   for (const r of l) {
     const f = r.f instanceof File ? r.f : new File([r.f], r.nom || "fichier", { type: r.f?.type || "" });
-    fichiers.push({ id: r.id, f, st: r.st === "lecture" ? "attente" : r.st, res: r.res, err: r.err, msg: "", n: r.n, rot: r.rot || 0, pids: r.pids || [] });
+    fichiers.push({ id: r.id, f, st: r.st === "lecture" ? "attente" : r.st, res: r.res, err: r.err, msg: "", n: r.n, rot: r.rot || 0, rotManuelle: !!r.rotManuelle, pids: r.pids || [] });
     ordre = Math.max(ordre, (r.n || 0) + 1);
   }
   renderFiles();
@@ -456,7 +489,7 @@ async function voir(x) {
   $("vueNom").textContent = x.f.name;
   $("vuePivot").hidden = t !== "image";
   box.innerHTML = "";
-  $("vueTxt").textContent = x.err ? "Erreur : " + x.err : x.res ? (x.res.texte || "(fichier tableur : pas de texte)") + `\n\n→ ${x.res.points.length} point(s) trouvé(s) (${x.res.methode})` : "Pas encore lu.";
+  $("vueTxt").textContent = x.err ? "Erreur : " + x.err : x.res ? (x.res.texte || "(fichier tableur : pas de texte)") + `\n\n→ ${x.res.points.length} point(s) trouvé(s) (${x.res.methode}${x.res.conf ? ", confiance " + Math.round(x.res.conf) + " %" : ""})` : "Pas encore lu.";
   $("vueTexte").open = !!(x.res && !x.res.points.length) || !!x.err;
   if (t === "classeur" || t === "csv" || t === "heic") {
     box.innerHTML = `<p class="hint" style="color:#ccc">${esc(x.f.name)} : ${x.res ? x.res.points.length + " point(s) lu(s)" : "pas encore lu"}.</p>`;
@@ -498,7 +531,7 @@ $("vueFermer").onclick = () => $("vue").close();
 $("vuePivot").onclick = () => {
   // Pivote d'un quart de tour et relit la photo.
   const x = vue; if (!x) return;
-  x.rot = ((x.rot || 0) + 90) % 360; afficherImage();
+  x.rot = ((x.rot || 0) + 90) % 360; x.rotManuelle = true; afficherImage();
   retirerPoints(x); x.st = "attente"; x.res = null; x.err = null; BD.mettre(x); renderFiles(); lireTout();
 };
 
@@ -530,7 +563,7 @@ async function lireTout(avecErreurs) {
         x.st = "lecture"; x.err = null; renderFiles(); statut("lireSt", `Lecture de ${x.f.name}… (${reste} restant${reste > 1 ? "s" : ""})`);
         BD.mettre(x);
         try {
-          x.res = await lireFichier(x.f, (m) => { x.msg = m; renderFiles(); }, x.rot || 0);
+          x.res = await lireFichier(x.f, (m) => { x.msg = m; renderFiles(); }, x.rot || 0, !!x.rotManuelle);
           if (!fichiers.includes(x)) continue; // retiré pendant la lecture
           if (x.res.rot !== undefined) x.rot = x.res.rot;
           x.st = x.res.points.length ? "lu" : "erreur";
