@@ -236,16 +236,18 @@ export function fusionner(points) {
 }
 
 /**
- * Calcule l'ordre de passage (dépôt et points en JSON).
+ * Calcule l'ordre de passage (dépôt et points en JSON). `matrice` : distances routières
+ * du camion (JSON [`Matrice`]) ou chaîne vide.
  * @param {string} depot
  * @param {string} points
  * @param {string} date
  * @param {number} generations
+ * @param {string} matrice_json
  * @returns {string}
  */
-export function calculer(depot, points, date, generations) {
-    let deferred5_0;
-    let deferred5_1;
+export function calculer(depot, points, date, generations, matrice_json) {
+    let deferred6_0;
+    let deferred6_1;
     try {
         const ptr0 = passStringToWasm0(depot, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
@@ -253,42 +255,9 @@ export function calculer(depot, points, date, generations) {
         const len1 = WASM_VECTOR_LEN;
         const ptr2 = passStringToWasm0(date, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len2 = WASM_VECTOR_LEN;
-        const ret = wasm.calculer(ptr0, len0, ptr1, len1, ptr2, len2, generations);
-        var ptr4 = ret[0];
-        var len4 = ret[1];
-        if (ret[3]) {
-            ptr4 = 0; len4 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred5_0 = ptr4;
-        deferred5_1 = len4;
-        return getStringFromWasm0(ptr4, len4);
-    } finally {
-        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
-    }
-}
-
-/**
- * Recalcule les distances après un changement d'ordre à la main.
- * @param {string} depot
- * @param {string} arrets
- * @param {string} non_places
- * @param {string} date
- * @returns {string}
- */
-export function recalculer(depot, arrets, non_places, date) {
-    let deferred6_0;
-    let deferred6_1;
-    try {
-        const ptr0 = passStringToWasm0(depot, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(arrets, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passStringToWasm0(non_places, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len2 = WASM_VECTOR_LEN;
-        const ptr3 = passStringToWasm0(date, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const ptr3 = passStringToWasm0(matrice_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len3 = WASM_VECTOR_LEN;
-        const ret = wasm.recalculer(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        const ret = wasm.calculer(ptr0, len0, ptr1, len1, ptr2, len2, generations, ptr3, len3);
         var ptr5 = ret[0];
         var len5 = ret[1];
         if (ret[3]) {
@@ -300,6 +269,44 @@ export function recalculer(depot, arrets, non_places, date) {
         return getStringFromWasm0(ptr5, len5);
     } finally {
         wasm.__wbindgen_free(deferred6_0, deferred6_1, 1);
+    }
+}
+
+/**
+ * Recalcule les distances après un changement d'ordre à la main.
+ * @param {string} depot
+ * @param {string} arrets
+ * @param {string} non_places
+ * @param {string} date
+ * @param {string} matrice_json
+ * @returns {string}
+ */
+export function recalculer(depot, arrets, non_places, date, matrice_json) {
+    let deferred7_0;
+    let deferred7_1;
+    try {
+        const ptr0 = passStringToWasm0(depot, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(arrets, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(non_places, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(date, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ptr4 = passStringToWasm0(matrice_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len4 = WASM_VECTOR_LEN;
+        const ret = wasm.recalculer(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4);
+        var ptr6 = ret[0];
+        var len6 = ret[1];
+        if (ret[3]) {
+            ptr6 = 0; len6 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred7_0 = ptr6;
+        deferred7_1 = len6;
+        return getStringFromWasm0(ptr6, len6);
+    } finally {
+        wasm.__wbindgen_free(deferred7_0, deferred7_1, 1);
     }
 }
 

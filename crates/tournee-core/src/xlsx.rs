@@ -37,6 +37,12 @@ pub fn liens_itineraire(t: &Tournee) -> Vec<(String, String)> {
     out
 }
 
+/// « 2 h 05 », « 45 min ».
+pub fn duree(min: f64) -> String {
+    let m = min.round() as i64;
+    if m >= 60 { format!("{} h {:02}", m / 60, m % 60) } else { format!("{m} min") }
+}
+
 pub fn generer(t: &Tournee) -> Result<Vec<u8>, XlsxError> {
     let mut wb = Workbook::new();
     let entete = Format::new()
@@ -56,14 +62,23 @@ pub fn generer(t: &Tournee) -> Result<Vec<u8>, XlsxError> {
     ws.set_name("Tournée")?;
     let bacs: u32 = t.arrets.iter().filter_map(|p| p.nb_bacs).sum();
     ws.write_string_with_format(0, 0, format!("Tournée PAV{}", if t.date.is_empty() { String::new() } else { format!(" du {}", t.date) }), &titre)?;
-    ws.write_string(1, 0, format!("{} arrêts · {} bacs · environ {:.1} km · calcul : {}", t.arrets.len(), bacs, t.total_km, t.methode))?;
-    ws.write_string(2, 0, format!("Départ et retour : {}", t.depot.adresse))?;
+    let distance = match (t.distances.as_str(), t.total_min) {
+        ("route", Some(min)) => format!("{:.1} km par la route · {} de conduite", t.total_km, duree(min)),
+        ("route", None) => format!("{:.1} km par la route", t.total_km),
+        _ => format!("environ {:.1} km (estimation à vol d'oiseau)", t.total_km),
+    };
+    ws.write_string(1, 0, format!("{} arrêts · {} bacs · {} · calcul : {}", t.arrets.len(), bacs, distance, t.methode))?;
+    let mut entete_l = format!("Départ et retour : {}", t.depot.adresse);
+    if !t.vehicule.is_empty() {
+        entete_l.push_str(&format!(" · Véhicule : {}", t.vehicule));
+    }
+    ws.write_string(2, 0, entete_l)?;
 
     let cols = [
         ("Fait", 6.0), ("Ordre", 7.0), ("Adresse", 34.0), ("Code postal", 11.0), ("Commune", 18.0), ("Flux", 16.0),
         ("Bacs", 6.0), ("Volume", 9.0), ("Référence", 12.0), ("Remarque", 30.0), ("Adresse trouvée", 38.0),
         ("Fiabilité", 10.0), ("Latitude", 11.0), ("Longitude", 11.0), ("Km depuis l'arrêt précédent", 12.0),
-        ("Google Maps", 12.0), ("Fiche source", 22.0),
+        ("Google Maps", 12.0), ("Fiche source", 22.0), ("Contact", 22.0), ("Téléphone", 15.0), ("Accès", 30.0),
     ];
     let r0 = 4u32;
     for (c, (h, w)) in cols.iter().enumerate() {
@@ -109,9 +124,10 @@ pub fn generer(t: &Tournee) -> Result<Vec<u8>, XlsxError> {
     let it = wb.add_worksheet();
     it.set_name("Itinéraire")?;
     it.write_string_with_format(0, 0, "Itinéraire à ouvrir dans Google Maps (tronçons de 8 arrêts)", &titre)?;
+    it.write_string(1, 0, "Attention : Google Maps calcule pour une voiture et ne connaît pas la hauteur du camion. Suivez le tracé de l'appli près des ponts.")?;
     for (i, (lib, url)) in liens_itineraire(t).iter().enumerate() {
-        it.write_string(2 + i as u32, 0, lib)?;
-        it.write_url(2 + i as u32, 1, Url::new(url.as_str()).set_text("Ouvrir l'itinéraire"))?;
+        it.write_string(3 + i as u32, 0, lib)?;
+        it.write_url(3 + i as u32, 1, Url::new(url.as_str()).set_text("Ouvrir l'itinéraire"))?;
     }
     it.set_column_width(0, 28)?;
     it.set_column_width(1, 24)?;
@@ -183,5 +199,8 @@ fn ligne_point(
         ws.write_number_with_format(r, 14, (k * 10.0).round() / 10.0, f)?;
     }
     ws.write_string_with_format(r, 16, &p.source, f)?;
+    ws.write_string_with_format(r, 17, &p.contact, fw)?;
+    ws.write_string_with_format(r, 18, &p.telephone, f)?;
+    ws.write_string_with_format(r, 19, &p.acces, fw)?;
     Ok(())
 }
