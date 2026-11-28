@@ -100,7 +100,7 @@ details#cfgAvance summary{cursor:pointer;color:var(--muted);font-size:.88rem}
 details#cfgAvance input{margin-top:6px}
 #cfgMap{height:200px;border-radius:4px;border:1px solid var(--line);display:none}
 #cfgMap.on{display:block}
-input[type=number],input[type=url]{font:inherit;font-size:16px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px 10px;width:100%}
+input[type=number],input[type=url],select{font:inherit;font-size:16px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px 10px;width:100%}
 .vehGrille{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
 .vehCarte{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:.9rem}
 .vehCarte b{font-weight:600}
@@ -191,7 +191,7 @@ dialog#vue[open]{display:flex;flex-direction:column}
       </div>
     </div>
   </section>
-  <p class="hint">Distances et tracé : moteur de routage open source Valhalla (données OpenStreetMap), profil camion avec hauteur, largeur, longueur et poids. Sans réseau, distances estimées à vol d'oiseau × 1,3. Ordre de passage calculé sur l'appareil par le solveur open source vrp-pragmatic (Rust/WebAssembly). Lecture : pdf.js, Tesseract. Adresses : Base Adresse Nationale.</p>
+  <p class="hint">Distances et tracé : moteur de routage open source Valhalla (données OpenStreetMap), profil du véhicule (hauteur, largeur ; poids et longueur pour un poids lourd). Sans réseau, distances estimées à vol d'oiseau × 1,3. Ordre de passage calculé sur l'appareil par le solveur open source vrp-pragmatic (Rust/WebAssembly). Lecture : pdf.js, Tesseract. Adresses : Base Adresse Nationale.</p>
   <p class="hint" id="moteurSt">Chargement du moteur…</p>
 </div>
 
@@ -236,8 +236,9 @@ dialog#vue[open]{display:flex;flex-direction:column}
 <dialog id="veh" aria-labelledby="vehTitre">
   <form method="dialog" class="cfg">
     <h2 id="vehTitre">Véhicule</h2>
-    <p class="hint">Le calcul de la tournée et le tracé évitent les rues où ce véhicule ne passe pas : ponts et passages trop bas, rues trop étroites, limites de poids ou de longueur. Ces restrictions viennent d'OpenStreetMap : vérifiez toujours la signalisation.</p>
-    <label class="f">Nom<input type="text" id="vehNom" placeholder="Camion 20 m³"></label>
+    <p class="hint">Le calcul de la tournée et le tracé évitent les rues où ce véhicule ne passe pas : ponts et passages trop bas, rues trop étroites. Pour un poids lourd, aussi les limites de poids et de longueur et les rues interdites aux poids lourds. Ces restrictions viennent d'OpenStreetMap : vérifiez toujours la signalisation.</p>
+    <label class="f">Nom<input type="text" id="vehNom" placeholder="Fourgon 20 m³"></label>
+    <label class="f">Type<select id="vehType"><option value="utilitaire">Utilitaire, 3,5 t ou moins (permis B)</option><option value="poids_lourd">Poids lourd, plus de 3,5 t</option></select></label>
     <div class="vehGrille">
       <label class="f">Hauteur (m)<input type="number" id="vehHauteur" min="1" max="5" step="0.01" inputmode="decimal"></label>
       <label class="f">Largeur (m)<input type="number" id="vehLargeur" min="1" max="3" step="0.01" inputmode="decimal"></label>

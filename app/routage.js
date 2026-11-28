@@ -1,19 +1,23 @@
 // Routage camion avec Valhalla (moteur open source, données OpenStreetMap, sans clé).
 // - matrice() : distances et durées routières entre tous les arrêts, pour le solveur.
 // - trace()   : tracé exact sur la route, dans l'ordre de passage, pour la carte.
-// Le profil « truck » de Valhalla évite les rues interdites au véhicule :
-// hauteur (ponts, passages bas), largeur, longueur et poids.
+// Utilitaire (≤ 3,5 t) : profil « auto » de Valhalla avec la hauteur et la largeur du
+// véhicule (ponts et passages bas évités), sans les interdictions poids lourd.
+// Poids lourd : profil « truck » (hauteur, largeur, longueur, poids, interdits PL).
 
 export const SERVEUR_DEFAUT = "https://valhalla1.openstreetmap.de";
 
 export const VEHICULE_DEFAUT = Object.freeze({
-  nom: "Camion 20 m³",
+  nom: "Fourgon 20 m³",
+  type: "utilitaire", // "utilitaire" (≤ 3,5 t, permis B) ou "poids_lourd"
   hauteur: 3.4, // m : passe sous les ponts de 3,40 m et plus
-  largeur: 2.55, // m
-  longueur: 10, // m
-  poids: 19, // t, poids total en charge
+  largeur: 2.2, // m, rétroviseurs repliés
+  longueur: 7, // m
+  poids: 3.5, // t, poids total autorisé en charge
   volume: 20, // m³ (pour information)
 });
+
+export const poidsLourd = (v) => v.type === "poids_lourd";
 
 // Limites du serveur public FOSSGIS, relevées le 28/11/2026 :
 // 10 lieux par itinéraire, 100 couples départ × arrivée par requête de matrice.
@@ -24,16 +28,13 @@ const EN_PARALLELE = 2;
 const nombre = (x) => String(x).replace(".", ",");
 
 export function resumeVehicule(v) {
-  return [v.nom || "Véhicule", `${nombre((+v.hauteur).toFixed(2))} m de haut`, `${nombre(v.poids)} t`, `${nombre(v.longueur)} m de long`].join(" · ");
+  return [v.nom || "Véhicule", poidsLourd(v) ? "poids lourd" : "utilitaire", `${nombre((+v.hauteur).toFixed(2))} m de haut`, `${nombre(v.poids)} t`].join(" · ");
 }
 
+const costing = (v) => (poidsLourd(v) ? "truck" : "auto");
 function options(v) {
-  return {
-    truck: {
-      height: +v.hauteur, width: +v.largeur, length: +v.longueur, weight: +v.poids,
-      hazmat: false,
-    },
-  };
+  if (!poidsLourd(v)) return { auto: { height: +v.hauteur, width: +v.largeur } };
+  return { truck: { height: +v.hauteur, width: +v.largeur, length: +v.longueur, weight: +v.poids, hazmat: false } };
 }
 
 const base = (serveur) => (serveur || SERVEUR_DEFAUT).replace(/\/+$/, "");
@@ -92,7 +93,7 @@ export async function matrice(serveur, v, lieux, progression = () => {}, signal)
     for (let j = 0; j < n; j += cols) {
       taches.push(async () => {
         const src = loc.slice(i, i + lignes), dst = loc.slice(j, j + cols);
-        const r = await post(serveur, "/sources_to_targets", { sources: src, targets: dst, costing: "truck", costing_options: options(v), units: "kilometers" }, signal);
+        const r = await post(serveur, "/sources_to_targets", { sources: src, targets: dst, costing: costing(v), costing_options: options(v), units: "kilometers" }, signal);
         (r.sources_to_targets || []).forEach((ligne, a) => ligne.forEach((c, b) => {
           const x = i + (c.from_index ?? a), y = j + (c.to_index ?? b);
           if (c.distance != null && c.time != null) { distances[x][y] = c.distance * 1000; durees[x][y] = c.time; }
@@ -118,7 +119,7 @@ export function decoder(str, precision = 6) {
 async function itineraire(serveur, v, lieux, signal) {
   const r = await post(serveur, "/route", {
     locations: lieux.map((l) => ({ lat: l.lat, lon: l.lon, type: "break" })),
-    costing: "truck", costing_options: options(v), units: "kilometers", directions_type: "none",
+    costing: costing(v), costing_options: options(v), units: "kilometers", directions_type: "none",
   }, signal);
   return r.trip.legs.map((l) => ({ km: l.summary.length, min: l.summary.time / 60, shape: decoder(l.shape), route: true }));
 }

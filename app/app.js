@@ -25,7 +25,8 @@ let pret = false;
 /* ---------------- état ---------------- */
 function load() {
   try { const s = JSON.parse(localStorage.getItem(KEY) || "null"); if (s) S = Object.assign(S, s); } catch (e) {}
-  S.vehicule = { ...routage.VEHICULE_DEFAUT, ...(S.vehicule || {}) };
+  // Un réglage sans type vient d'une version d'essai (camion 19 t) : on repart des valeurs par défaut.
+  S.vehicule = S.vehicule && S.vehicule.type ? { ...routage.VEHICULE_DEFAUT, ...S.vehicule } : { ...routage.VEHICULE_DEFAUT };
   chargerMatrice();
 }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
@@ -402,7 +403,7 @@ $("date").onchange = (e) => { S.date = e.target.value; save(); };
 /* ---------------- véhicule ---------------- */
 const CHAMPS_VEH = { vehHauteur: "hauteur", vehLargeur: "largeur", vehLongueur: "longueur", vehPoids: "poids", vehVolume: "volume" };
 function remplirVehicule(v) {
-  $("vehNom").value = v.nom || "";
+  $("vehNom").value = v.nom || ""; $("vehType").value = v.type || "utilitaire";
   for (const [id, k] of Object.entries(CHAMPS_VEH)) $(id).value = v[k];
   $("vehServeur").value = S.serveurRoutage || "";
 }
@@ -411,7 +412,7 @@ $("vehMod").onclick = () => { remplirVehicule(S.vehicule); statut("vehSt", ""); 
 $("vehAnnuler").onclick = () => $("veh").close();
 $("vehDefaut").onclick = () => { remplirVehicule(routage.VEHICULE_DEFAUT); $("vehServeur").value = ""; };
 $("vehOk").onclick = () => {
-  const v = { nom: $("vehNom").value.trim() || routage.VEHICULE_DEFAUT.nom };
+  const v = { nom: $("vehNom").value.trim() || routage.VEHICULE_DEFAUT.nom, type: $("vehType").value };
   for (const [id, k] of Object.entries(CHAMPS_VEH)) {
     const x = parseFloat(String($(id).value).replace(",", "."));
     if (!(x > 0)) { statut("vehSt", "Indiquez une valeur pour « " + $(id).parentElement.firstChild.textContent.trim() + " ».", true); return; }
@@ -695,12 +696,12 @@ async function matriceCamion(d) {
   const cle = routage.cleMatrice(S.serveurRoutage, S.vehicule, lieux);
   if (M.cle === cle && M.m) return M.m;
   try {
-    statut("calcSt", "Distances routières du camion…");
-    const m = await routage.matrice(S.serveurRoutage, S.vehicule, lieux, (k, n) => statut("calcSt", `Distances routières du camion… ${k}/${n}`));
+    statut("calcSt", "Distances routières du véhicule…");
+    const m = await routage.matrice(S.serveurRoutage, S.vehicule, lieux, (k, n) => statut("calcSt", `Distances routières du véhicule… ${k}/${n}`));
     M = { cle, m }; garderMatrice();
     return m;
   } catch (e) {
-    $("calcAlerte").textContent = `Le serveur de routage ne répond pas (${e.message}) : distances estimées à vol d'oiseau, sans tenir compte de la hauteur du camion. Réessayez avec du réseau.`;
+    $("calcAlerte").textContent = `Le serveur de routage ne répond pas (${e.message}) : distances estimées à vol d'oiseau, sans tenir compte de la hauteur du véhicule. Réessayez avec du réseau.`;
     return null;
   }
 }
@@ -713,7 +714,7 @@ async function tracer() {
   const seq = [t.depot, ...t.arrets, t.depot].map((p) => ({ lat: p.lat, lon: p.lon }));
   try {
     const st = $("calcSt").textContent;
-    statut("calcSt", "Tracé de l'itinéraire du camion…");
+    statut("calcSt", "Tracé de l'itinéraire…");
     const legs = await routage.trace(S.serveurRoutage, S.vehicule, seq, ctrl.signal);
     if (S.tournee !== t) return;
     t.trace = legs; save(); renderRoute(); statut("calcSt", st);
@@ -740,9 +741,9 @@ function renderRoute() {
   const bacs = t.arrets.reduce((s, p) => s + (p.nb_bacs || 0), 0);
   const route = t.distances === "route";
   const duree = t.total_min != null ? `<div class="stat"><b>${dureeTxt(t.total_min)}</b><span>de conduite</span></div>` : "";
-  $("stats").innerHTML = `<div class="stat"><b>${t.arrets.length}</b><span>arrêts</span></div><div class="stat"><b>${bacs || "–"}</b><span>bacs</span></div><div class="stat"><b>${route ? "" : "≈ "}${km(t.total_km)} km</b><span>${route ? "par la route, en camion" : "distance estimée"}</span></div>${duree}`;
+  $("stats").innerHTML = `<div class="stat"><b>${t.arrets.length}</b><span>arrêts</span></div><div class="stat"><b>${bacs || "–"}</b><span>bacs</span></div><div class="stat"><b>${route ? "" : "≈ "}${km(t.total_km)} km</b><span>${route ? "par la route" : "distance estimée"}</span></div>${duree}`;
   const inacc = (t.inaccessibles || []).map((id) => t.arrets.find((p) => p.id === id)).filter(Boolean);
-  if (inacc.length) $("calcAlerte").textContent = `Le camion (${t.vehicule || routage.resumeVehicule(S.vehicule)}) ne peut pas rejoindre ${inacc.length > 1 ? "ces arrêts" : "cet arrêt"} par la route : ${inacc.map((p) => [p.adresse, p.commune].filter(Boolean).join(", ")).join(" ; ")}. Vérifiez la position ou l'accès.`;
+  if (inacc.length) $("calcAlerte").textContent = `Le véhicule (${t.vehicule || routage.resumeVehicule(S.vehicule)}) ne peut pas rejoindre ${inacc.length > 1 ? "ces arrêts" : "cet arrêt"} par la route : ${inacc.map((p) => [p.adresse, p.commune].filter(Boolean).join(", ")).join(" ; ")}. Vérifiez la position ou l'accès.`;
   else if (t.distances === "mixte") $("calcAlerte").textContent = "Certaines distances sont estimées à vol d'oiseau.";
   ol.innerHTML = "";
   const li = (k, titre, sous, cls) => {
@@ -761,7 +762,7 @@ function renderRoute() {
     const [u, d] = e.querySelectorAll(".mv button"); u.onclick = () => deplacer(i, -1); d.onclick = () => deplacer(i, 1);
   });
   li("D", t.depot.adresse || "Dépôt", ["Retour · +" + km(t.troncons_km[t.troncons_km.length - 1]) + " km"], "depot");
-  if (t.liens.length) { const h = document.createElement("p"); h.className = "hint"; h.textContent = "Attention : Google Maps calcule pour une voiture et ne connaît pas la hauteur du camion. Suivez le tracé ci-dessus près des ponts."; $("liens").appendChild(h); }
+  if (t.liens.length) { const h = document.createElement("p"); h.className = "hint"; h.textContent = "Attention : Google Maps calcule pour une voiture et ne connaît pas la hauteur du véhicule. Suivez le tracé ci-dessus près des ponts."; $("liens").appendChild(h); }
   for (const [lib, url] of t.liens) { const a = document.createElement("a"); a.className = "btn primary"; a.href = url; a.target = "_blank"; a.rel = "noopener"; a.textContent = "Google Maps : " + lib; $("liens").appendChild(a); }
   if (map) {
     const seq = [[t.depot.lat, t.depot.lon], ...t.arrets.map((p) => [p.lat, p.lon]), [t.depot.lat, t.depot.lon]];
