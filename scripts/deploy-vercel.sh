@@ -30,4 +30,17 @@ if [ -n "$ORG_ID" ] && [ -n "$PROJECT_ID" ]; then
   export VERCEL_ORG_ID="$ORG_ID" VERCEL_PROJECT_ID="$PROJECT_ID"
 fi
 
-vercel deploy --yes "$@"
+# Le Dockerfile à la racine (service Render) ferait détecter un « container » à Vercel.
+# On déploie donc un dossier qui ne contient que vercel.json et app/.
+racine="$(pwd)"
+etape="$(mktemp -d)/inpactz"
+mkdir -p "$etape"
+trap 'rm -rf "$(dirname "$etape")"' EXIT
+cp vercel.json "$etape/"
+cp -R app "$etape/app"
+if [ -d .vercel ]; then cp -R .vercel "$etape/.vercel"; fi
+
+(cd "$etape" && vercel deploy --yes "$@")
+
+# Garde le lien vers le projet Vercel (gitignoré) pour les prochains déploiements.
+if [ -d "$etape/.vercel" ]; then rm -rf "$racine/.vercel"; cp -R "$etape/.vercel" "$racine/.vercel"; fi
