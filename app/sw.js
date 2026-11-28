@@ -1,5 +1,5 @@
 // Garde l'appli disponible hors connexion (sauf la recherche d'adresses et la carte).
-const CACHE = "tournee-pav-v2";
+const CACHE = "tournee-pav-v3";
 const FICHIERS = [
   "./", "index.html", "app.js", "routage.js", "manifest.webmanifest", "icone.svg",
   "pkg/tournee_wasm.js", "pkg/tournee_wasm_bg.wasm",

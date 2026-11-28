@@ -156,6 +156,13 @@ static RE_VOLUME: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\b(\d+(?:[.,]\d+)?
 static RE_REMARQUE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)\b(?:acc[eè]s|attention|horaires?|avant\s|apr[eè]s\s|code\s|portail|cl[eé]\s|stationnement|remarque|observation|interdit|sauf)").unwrap()
 });
+static RE_TEL: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?:\+33\s?|\b0)[1-9](?:[\s.\-]?\d{2}){4}\b").unwrap());
+static RE_CONTACT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)\b(?:contact|interlocuteur|gardien(?:ne)?|responsable|r[ée]f[ée]rent)\s*:\s*([^\d|\t;]{2,60})").unwrap()
+});
+static RE_FIN_CONTACT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\s(?:t[ée]l|portable|mobile|mail|e-mail)\b|\s{3,}").unwrap());
+static RE_ACCES: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)\b(?:digicode|code\s+(?:porte|portail|d.acc[eè]s)|badge|acc[eè]s)\s*:?\s*(.{1,80})").unwrap());
 static RE_REF_DEBUT: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\s*([A-Z]{1,4}[-_ ]?\d{1,6})\b").unwrap());
 static RE_REF: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)\b(?:r[ée]f(?:[ée]rence)?|n°\s*pav|id|code)\s*[:.]?\s*([A-Z0-9][A-Z0-9\-/]{1,15})").unwrap());
@@ -266,7 +273,28 @@ pub fn analyser_texte(texte: &str, source: &str) -> Vec<Point> {
                 p.reference = c[1].to_string();
             }
         }
-        if let Some(m) = RE_REMARQUE.find(&ligne) {
+        if p.telephone.is_empty() {
+            if let Some(m) = RE_TEL.find(&ligne) {
+                p.telephone = m.as_str().to_string();
+            }
+        }
+        if p.contact.is_empty() {
+            if let Some(c) = RE_CONTACT.captures(&ligne) {
+                let nom = RE_FIN_CONTACT.split(&c[1]).next().unwrap_or("");
+                p.contact = propre(nom.trim_end_matches([' ', '-', ',', ':', '(']));
+            }
+        }
+        let mut ligne_acces = false;
+        if p.acces.is_empty() {
+            if let Some(c) = RE_ACCES.captures(&ligne) {
+                let a = propre(c[0].split(['|', '\t']).next().unwrap_or("")).split("   ").next().unwrap_or("").trim().to_string();
+                if a.chars().filter(|c| c.is_alphanumeric()).count() > 6 {
+                    p.acces = a;
+                    ligne_acces = true;
+                }
+            }
+        }
+        if let Some(m) = RE_REMARQUE.find(&ligne).filter(|_| !ligne_acces) {
             let r = propre(ligne[m.start()..].split(['|', '\t']).next().unwrap_or(""));
             let r = r.split("   ").next().unwrap_or("").trim().to_string();
             if !r.is_empty() && !p.remarque.contains(&r) {
@@ -309,8 +337,20 @@ mod tests {
         assert_eq!(p[0].commune, "Rennes");
         assert_eq!(p[1].adresse, "Place de la République");
         assert_eq!(p[1].nb_bacs, Some(3));
-        assert!(p[1].remarque.contains("arrière"));
+        assert!(p[1].acces.contains("arrière"), "{:?}", p[1].acces);
         assert_eq!(p[2].code_postal, "35510");
         assert_eq!(p[2].lat, Some(48.1201));
+    }
+
+    #[test]
+    fn coordonnees_client() {
+        let t = "12 rue de Nantes, 35000 Rennes   Verre   2 bacs\n\
+                 Contact : Mme Durand (mairie)   Tél. 02 99 12 34 56\n\
+                 Digicode : 1234A\n";
+        let p = analyser_texte(t, "f.pdf");
+        assert_eq!(p.len(), 1, "{p:#?}");
+        assert_eq!(p[0].contact, "Mme Durand (mairie)");
+        assert_eq!(p[0].telephone, "02 99 12 34 56");
+        assert_eq!(p[0].acces, "Digicode : 1234A");
     }
 }

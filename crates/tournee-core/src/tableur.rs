@@ -22,6 +22,9 @@ enum Col {
     Volume,
     Reference,
     Remarque,
+    Contact,
+    Telephone,
+    Acces,
     Lat,
     Lon,
     Gps,
@@ -52,6 +55,12 @@ fn colonne(titre: &str) -> Option<Col> {
         Col::Numero
     } else if a(&["rue", "voie"]) {
         Col::Voie
+    } else if a(&["telephone", "portable", "mobile"]) || t == "tel" || t.starts_with("tel ") {
+        Col::Telephone
+    } else if a(&["contact", "interlocuteur", "gardien", "responsable"]) || t == "nom" || t.starts_with("nom ") {
+        Col::Contact
+    } else if a(&["acces", "digicode", "badge"]) {
+        Col::Acces
     } else if a(&["flux", "type de dechet", "dechet", "materiau", "matiere"]) {
         Col::Flux
     } else if a(&["bac", "colonne", "conteneur", "quantite", "nombre", "nb"]) {
@@ -60,7 +69,7 @@ fn colonne(titre: &str) -> Option<Col> {
         Col::Volume
     } else if a(&["reference", "ref", "identifiant", "id", "code pav", "n pav", "numero pav"]) {
         Col::Reference
-    } else if a(&["remarque", "observation", "commentaire", "note", "consigne", "acces"]) {
+    } else if a(&["remarque", "observation", "commentaire", "note", "consigne"]) {
         Col::Remarque
     } else {
         return None;
@@ -127,6 +136,9 @@ pub fn lignes_en_points(lignes: Vec<Vec<String>>, source: &str) -> Vec<Point> {
                 Some(Col::Volume) => p.volume = v.to_string(),
                 Some(Col::Reference) => p.reference = v.to_string(),
                 Some(Col::Remarque) => p.remarque = v.to_string(),
+                Some(Col::Contact) => p.contact = v.to_string(),
+                Some(Col::Telephone) => p.telephone = v.to_string(),
+                Some(Col::Acces) => p.acces = v.to_string(),
                 Some(Col::Lat) => p.lat = nombre(v),
                 Some(Col::Lon) => p.lon = nombre(v),
                 Some(Col::Gps) => {

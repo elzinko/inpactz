@@ -14,7 +14,7 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 const SCORE_FIABLE = 0.6;
 const GEOCODEURS = ["https://data.geopf.fr/geocodage/search", "https://api-adresse.data.gouv.fr/search/"];
 
-let S = { depot: { adresse: "", lat: null, lon: null }, date: "", points: [], tournee: null, vehicule: { ...routage.VEHICULE_DEFAUT }, serveurRoutage: "" };
+let S = { depot: { adresse: "", lat: null, lon: null }, points: [], tournee: null, sauvegarde: null, vehicule: { ...routage.VEHICULE_DEFAUT }, serveurRoutage: "" };
 // Dernière matrice routière calculée (gardée à part : elle peut être grosse).
 let M = { cle: "", m: null };
 function chargerMatrice() { try { const x = JSON.parse(localStorage.getItem(KEY + "-matrice") || "null"); if (x && x.cle) M = x; } catch (e) {} }
@@ -248,7 +248,6 @@ async function placer() {
 
 /* ---------------- dépôt ---------------- */
 function fillDepot() {
-  $("date").value = S.date || "";
   const vide = !S.depot.adresse && !pos(S.depot);
   $("depotCard").classList.toggle("vide", vide);
   $("depotNom").textContent = vide ? "Pas encore réglé" : (S.depot.adresse || "Position GPS");
@@ -398,7 +397,140 @@ $("cfgOk").onclick = () => {
 $("cfgPlusTard").onclick = () => $("cfg").close();
 $("depotMod").onclick = () => ouvrirReglages(false);
 $("reglages").onclick = () => ouvrirReglages(false);
-$("date").onchange = (e) => { S.date = e.target.value; save(); };
+
+/* ---------------- fiche d'un arrêt et carnet de contacts ---------------- */
+// Carnet : contact, téléphone et accès par adresse, gardés sur l'appareil et repris
+// automatiquement quand la même adresse revient dans une autre tournée.
+const CLE_CARNET = KEY + "-carnet";
+const cleAdresse = (p) => [p.adresse, p.commune].map((x) => String(x || "").normalize("NFD").replace(/[^a-zA-Z0-9]/g, "").toLowerCase()).join("|");
+function lireCarnet() { try { return JSON.parse(localStorage.getItem(CLE_CARNET) || "{}") || {}; } catch (e) { return {}; } }
+function completerContacts(points) {
+  const c = lireCarnet();
+  for (const p of points) {
+    const x = c[cleAdresse(p)]; if (!x) continue;
+    for (const k of ["contact", "telephone", "acces"]) if (!p[k] && x[k]) p[k] = x[k];
+  }
+}
+function aujourdhui() { return new Date().toLocaleDateString("fr-FR"); }
+const telLien = (t) => "tel:" + String(t).replace(/[^\d+]/g, "");
+let ficheId = null;
+function pointParId(id) { return S.points.find((p) => p.id === id) || (S.tournee && S.tournee.arrets.find((p) => p.id === id)); }
+function ouvrirFiche(id) {
+  const p = pointParId(id); if (!p) return;
+  ficheId = id;
+  const rang = S.tournee ? S.tournee.arrets.findIndex((x) => x.id === id) : -1;
+  $("ficheTitre").textContent = rang >= 0 ? `Arrêt ${rang + 1}` : "Point de collecte";
+  $("ficheAdresse").textContent = [p.adresse, [p.code_postal, p.commune].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  const infos = [["Flux", p.flux], ["Bacs", p.nb_bacs], ["Volume", p.volume], ["Référence", p.reference], ["Adresse trouvée", p.label], ["GPS", fmt(p)], ["Fiche", p.source]];
+  $("ficheInfos").innerHTML = infos.filter(([, v]) => v !== null && v !== undefined && v !== "").map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
+  $("ficheContact").value = p.contact || ""; $("ficheTel").value = p.telephone || ""; $("ficheAcces").value = p.acces || ""; $("ficheRemarque").value = p.remarque || "";
+  majAppeler();
+  const it = $("ficheItin");
+  if (pos(p)) { it.hidden = false; it.href = `https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${p.lat.toFixed(6)},${p.lon.toFixed(6)}`; } else it.hidden = true;
+  $("fiche").showModal();
+}
+function majAppeler() { const t = $("ficheTel").value.trim(); $("ficheAppeler").hidden = !t; if (t) $("ficheAppeler").href = telLien(t); }
+$("ficheTel").oninput = majAppeler;
+$("ficheFermer").onclick = () => $("fiche").close();
+$("ficheOk").onclick = () => {
+  const v = { contact: $("ficheContact").value.trim(), telephone: $("ficheTel").value.trim(), acces: $("ficheAcces").value.trim(), remarque: $("ficheRemarque").value.trim() };
+  // Le même point peut être à la fois dans la liste et dans la tournée calculée.
+  for (const p of [S.points.find((x) => x.id === ficheId), S.tournee && S.tournee.arrets.find((x) => x.id === ficheId)]) if (p) Object.assign(p, v);
+  const p = pointParId(ficheId);
+  if (p && p.adresse) {
+    const c = lireCarnet(); const k = cleAdresse(p);
+    if (v.contact || v.telephone || v.acces) c[k] = { contact: v.contact, telephone: v.telephone, acces: v.acces }; else delete c[k];
+    try { localStorage.setItem(CLE_CARNET, JSON.stringify(c)); } catch (e) {}
+  }
+  save(); renderPoints(); renderRoute(); $("fiche").close();
+};
+
+/* ---------------- tournées enregistrées ---------------- */
+// Une tournée enregistrée = dépôt, points, ordre calculé, tracé et véhicule, dans IndexedDB.
+const Tournees = (() => {
+  let p;
+  const ouvrir = () => p || (p = new Promise((ok, ko) => {
+    const r = indexedDB.open("tournee-pav-tournees", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("t", { keyPath: "id" });
+    r.onsuccess = () => ok(r.result); r.onerror = () => ko(r.error);
+  }));
+  const tx = async (mode, fn) => { const db = await ouvrir(); return new Promise((ok, ko) => { const t = db.transaction("t", mode); const r = fn(t.objectStore("t")); t.oncomplete = () => ok(r && r.result); t.onerror = () => ko(t.error); }); };
+  return {
+    liste: async () => ((await tx("readonly", (s) => s.getAll())) || []).sort((a, b) => b.modifie - a.modifie),
+    lire: (id) => tx("readonly", (s) => s.get(id)),
+    mettre: (t) => tx("readwrite", (s) => s.put(t)),
+    retirer: (id) => tx("readwrite", (s) => s.delete(id)),
+  };
+})();
+function nomParDefaut() {
+  const communes = [...new Set((S.tournee ? S.tournee.arrets : S.points).map((p) => p.commune).filter(Boolean))];
+  return `Tournée du ${aujourdhui()}` + (communes.length ? " · " + communes.slice(0, 3).join(", ") + (communes.length > 3 ? "…" : "") : "");
+}
+async function ouvrirMes() {
+  statut("mesSt", "");
+  $("mesEnr").hidden = !S.tournee;
+  $("mesNom").value = (S.sauvegarde && S.sauvegarde.nom) || nomParDefaut();
+  $("mesSauver").textContent = S.sauvegarde ? "💾 Mettre à jour" : "💾 Enregistrer";
+  $("mesCopie").hidden = !S.sauvegarde;
+  $("mes").showModal();
+  await afficherMes();
+}
+async function afficherMes() {
+  const ul = $("mesListe"); let liste = [];
+  try { liste = await Tournees.liste(); } catch (e) { ul.innerHTML = `<li class="hint">Stockage indisponible sur ce navigateur (${esc(e.message)}).</li>`; return; }
+  if (!liste.length) { ul.innerHTML = `<li class="hint">Aucune tournée enregistrée pour l'instant.</li>`; return; }
+  ul.innerHTML = "";
+  for (const t of liste) {
+    const li = document.createElement("li"); if (S.sauvegarde && S.sauvegarde.id === t.id) li.className = "actuelle";
+    const n = t.etat.tournee ? t.etat.tournee.arrets.length : t.etat.points.length;
+    const km_ = t.etat.tournee ? ` · ${km(t.etat.tournee.total_km)} km` : "";
+    li.innerHTML = `<span><b></b><small>${n} arrêt(s)${km_} · enregistrée le ${esc(new Date(t.modifie).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }))}</small></span><button type="button" data-o>Ouvrir</button><button type="button" class="ghost" data-s>Supprimer</button>`;
+    li.querySelector("b").textContent = t.nom;
+    deuxTemps(li.querySelector("[data-o]"), "Remplacer la tournée en cours ?", () => chargerTournee(t.id), () => !S.points.length || (S.sauvegarde && S.sauvegarde.id === t.id));
+    deuxTemps(li.querySelector("[data-s]"), "Supprimer définitivement ?", async () => {
+      await Tournees.retirer(t.id); if (S.sauvegarde && S.sauvegarde.id === t.id) { S.sauvegarde = null; save(); }
+      statut("mesSt", `« ${t.nom} » supprimée.`); afficherMes();
+    });
+    ul.appendChild(li);
+  }
+}
+/** Bouton à confirmer d'un second appui (dans les 4 s), sauf si `sansConfirmer()` est vrai. */
+function deuxTemps(b, question, action, sansConfirmer = () => false) {
+  const txt = b.textContent; let arme = false;
+  b.onclick = async () => {
+    if (!arme && !sansConfirmer()) { arme = true; b.textContent = question; b.classList.add("signal"); setTimeout(() => { arme = false; b.textContent = txt; b.classList.remove("signal"); }, 4000); return; }
+    arme = false; b.disabled = true;
+    try { await action(); } catch (e) { statut("mesSt", e.message || String(e), true); } finally { b.disabled = false; b.textContent = txt; b.classList.remove("signal"); }
+  };
+}
+$("mesCopie").onclick = () => { S.sauvegarde = null; if ($("mesNom").value.trim() === nomParDefaut()) $("mesNom").value = nomParDefaut(); $("mesSauver").click(); };
+$("mesSauver").onclick = async () => {
+  if (!S.tournee) return;
+  const nom = $("mesNom").value.trim() || nomParDefaut();
+  const id = (S.sauvegarde && S.sauvegarde.id) || uid() + uid();
+  const etat = JSON.parse(JSON.stringify({ depot: S.depot, points: S.points, tournee: S.tournee, vehicule: S.vehicule, serveurRoutage: S.serveurRoutage }));
+  try {
+    const ancienne = S.sauvegarde && (await Tournees.lire(id));
+    await Tournees.mettre({ id, nom, cree: (ancienne && ancienne.cree) || Date.now(), modifie: Date.now(), etat });
+    S.sauvegarde = { id, nom }; save();
+    $("mesSauver").textContent = "💾 Mettre à jour"; $("mesCopie").hidden = false;
+    statut("mesSt", `« ${nom} » enregistrée sur ce téléphone.`); afficherMes();
+  } catch (e) { statut("mesSt", "Enregistrement impossible : " + (e.message || e), true); }
+};
+async function chargerTournee(id) {
+  const t = await Tournees.lire(id); if (!t) throw new Error("Tournée introuvable.");
+  const e = t.etat;
+  for (const x of fichiers) if (x.url) URL.revokeObjectURL(x.url);
+  fichiers = []; BD.vider();
+  Object.assign(S, { depot: e.depot, points: e.points, tournee: e.tournee, vehicule: { ...routage.VEHICULE_DEFAUT, ...(e.vehicule || {}) }, serveurRoutage: e.serveurRoutage || "", sauvegarde: { id: t.id, nom: t.nom }, configure: true });
+  save(); fillDepot(); afficherVehicule(); renderFiles(); renderPoints(); renderRoute();
+  statut("calcSt", `Tournée « ${t.nom} » ouverte.`);
+  $("mes").close();
+  if (S.tournee && !S.tournee.trace) tracer();
+}
+$("mesOuvrir").onclick = ouvrirMes;
+$("enregistrer").onclick = ouvrirMes;
+$("mesFermer").onclick = () => $("mes").close();
 
 /* ---------------- véhicule ---------------- */
 const CHAMPS_VEH = { vehHauteur: "hauteur", vehLargeur: "largeur", vehLongueur: "longueur", vehPoids: "poids", vehVolume: "volume" };
@@ -627,6 +759,7 @@ function precision(p) {
   return ["à placer", "pr-moy"];
 }
 function renderPoints() {
+  completerContacts(S.points);
   const tb = $("pts"); tb.innerHTML = "";
   if (!S.points.length) { tb.innerHTML = `<tr><td colspan="9" class="hint" style="padding:14px">Aucun point. Déposez des fiches à l'étape 2 ou ajoutez un point à la main.</td></tr>`; return; }
   for (const p of S.points) {
@@ -640,7 +773,7 @@ function renderPoints() {
     <td><input type="text" data-k="nb_bacs" value="${esc(p.nb_bacs ?? "")}" style="width:5ch"></td>
     <td><input type="text" data-k="remarque" value="${esc(p.remarque)}" style="min-width:16ch"></td>
     <td><input type="text" data-k="gps" value="${esc(fmt(p))}" placeholder="lat, lon" style="width:19ch"><div><span class="prec ${pc}" title="${esc(p.label)}">${esc(pt)}</span></div></td>
-    <td><button class="ghost" aria-label="Supprimer">×</button></td>`;
+    <td style="white-space:nowrap"><button class="ghost" data-fiche aria-label="Fiche du point">ⓘ</button><button class="ghost" data-suppr aria-label="Supprimer">×</button></td>`;
     tr.querySelectorAll("input").forEach((i) => (i.onchange = () => {
       const k = i.dataset.k;
       if (k === "actif") p.actif = i.checked;
@@ -649,7 +782,8 @@ function renderPoints() {
       else { p[k] = i.value; if (["adresse", "code_postal", "commune"].includes(k) && p.origine !== "manuel" && p.origine !== "fiche") Object.assign(p, { lat: null, lon: null, origine: "", score: null, label: "" }); }
       S.tournee = null; save(); renderPoints(); renderRoute();
     }));
-    tr.querySelector("button").onclick = () => { S.points = S.points.filter((x) => x !== p); S.tournee = null; save(); renderPoints(); renderRoute(); };
+    tr.querySelector("[data-fiche]").onclick = () => ouvrirFiche(p.id);
+    tr.querySelector("[data-suppr]").onclick = () => { S.points = S.points.filter((x) => x !== p); S.tournee = null; save(); renderPoints(); renderRoute(); };
     tb.appendChild(tr);
   }
 }
@@ -658,7 +792,7 @@ $("ajout").onclick = () => { S.points.push({ id: uid(), adresse: "", code_postal
 let arm = false;
 $("vider").onclick = () => {
   if (!arm) { arm = true; $("vider").textContent = "Confirmer"; setTimeout(() => { arm = false; $("vider").textContent = "Tout effacer"; }, 4000); return; }
-  arm = false; $("vider").textContent = "Tout effacer"; S.points = []; S.tournee = null; fichiers = []; BD.vider(); save(); renderFiles(); renderPoints(); renderRoute();
+  arm = false; $("vider").textContent = "Tout effacer"; S.points = []; S.tournee = null; S.sauvegarde = null; fichiers = []; BD.vider(); save(); renderFiles(); renderPoints(); renderRoute();
 };
 
 /* ---------------- tournée ---------------- */
@@ -682,7 +816,8 @@ async function calculerSansVeille() {
     await new Promise((r) => setTimeout(r, 20)); // laisse l'écran se mettre à jour
     const n = S.points.filter((p) => p.actif !== false && pos(p)).length;
     const generations = n > 150 ? 200 : n > 60 ? 400 : 800;
-    S.tournee = JSON.parse(moteur.calculer(JSON.stringify(d), JSON.stringify(S.points), S.date || "", generations, m ? JSON.stringify(m) : ""));
+    completerContacts(S.points);
+    S.tournee = JSON.parse(moteur.calculer(JSON.stringify(d), JSON.stringify(S.points), aujourdhui(), generations, m ? JSON.stringify(m) : ""));
     S.tournee.vehicule = routage.resumeVehicule(S.vehicule);
     statut("calcSt", S.tournee.non_places.length ? S.tournee.non_places.length + " point(s) sans position laissé(s) de côté." : "");
     save(); renderRoute();
@@ -729,14 +864,14 @@ function deplacer(i, dir) {
   [a[i], a[j]] = [a[j], a[i]];
   try {
     const m = M.m && t.distances !== "estimation" ? JSON.stringify(M.m) : "";
-    S.tournee = JSON.parse(moteur.recalculer(JSON.stringify(t.depot), JSON.stringify(a), JSON.stringify(t.non_places), S.date || "", m));
+    S.tournee = JSON.parse(moteur.recalculer(JSON.stringify(t.depot), JSON.stringify(a), JSON.stringify(t.non_places), t.date || aujourdhui(), m));
     S.tournee.vehicule = t.vehicule;
     save(); renderRoute(); tracer();
   }
   catch (e) { statut("calcSt", e.message, true); }
 }
 function renderRoute() {
-  const t = S.tournee; const ol = $("route"); layer && layer.clearLayers(); $("liens").innerHTML = ""; $("xlsx").disabled = !t;
+  const t = S.tournee; const ol = $("route"); layer && layer.clearLayers(); $("liens").innerHTML = ""; $("xlsx").disabled = !t; $("enregistrer").disabled = !t;
   if (!t) { $("stats").innerHTML = ""; $("calcAlerte").textContent = ""; ol.innerHTML = `<li class="hint" style="display:block">Calculez la tournée pour obtenir l'ordre de passage.</li>`; return; }
   const bacs = t.arrets.reduce((s, p) => s + (p.nb_bacs || 0), 0);
   const route = t.distances === "route";
@@ -758,6 +893,10 @@ function renderRoute() {
       [p.flux, p.nb_bacs ? p.nb_bacs + " bac(s)" : "", p.reference].filter(Boolean).join(" · "),
       [p.remarque, "+" + km(t.troncons_km[i]) + " km" + (t.troncons_min && t.troncons_min[i] != null ? " · " + dureeTxt(t.troncons_min[i]) : "")].filter(Boolean).join(" · "),
     ]);
+    const ouvrir = e.children[1]; ouvrir.classList.add("ouvrir"); ouvrir.setAttribute("role", "button"); ouvrir.tabIndex = 0;
+    if (p.telephone || p.contact || p.acces) e.querySelector("b").textContent += "  " + (p.telephone ? "📞" : "ℹ️");
+    ouvrir.onclick = () => ouvrirFiche(p.id);
+    ouvrir.onkeydown = (ev) => { if (ev.key === "Enter") ouvrirFiche(p.id); };
     e.querySelector(".mv").innerHTML = `<button class="ghost" ${i === 0 ? "disabled" : ""} aria-label="Monter">▲</button><button class="ghost" ${i === t.arrets.length - 1 ? "disabled" : ""} aria-label="Descendre">▼</button>`;
     const [u, d] = e.querySelectorAll(".mv button"); u.onclick = () => deplacer(i, -1); d.onclick = () => deplacer(i, 1);
   });
@@ -783,7 +922,7 @@ $("xlsx").onclick = () => {
   try {
     const octets = moteur.excel(JSON.stringify(S.tournee));
     const b = new Blob([octets], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `tournee-pav-${S.date || "export"}.xlsx`;
+    const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `tournee-pav-${(S.tournee.date || aujourdhui()).split("/").reverse().join("-")}.xlsx`;
     document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
   } catch (e) { statut("calcSt", e.message || String(e), true); }
 };
@@ -800,7 +939,7 @@ $("exemple").onclick = () => {
     S.points = ["Place de la Mairie", "Boulevard de la Liberté", "Place Sainte-Anne", "Avenue Janvier", "Rue de Fougères", "Place de Bretagne", "Rue de Saint-Malo", "Boulevard de Vitré"]
       .map((a, i) => ({ id: uid(), adresse: a, code_postal: "35000", commune: "Rennes", flux: fl[i][0], nb_bacs: fl[i][1], remarque: "", lat: null, lon: null, actif: true, origine: "", source: "exemple" }));
   }
-  S.tournee = null; save(); fillDepot(); renderPoints(); renderRoute(); calculer();
+  S.tournee = null; S.sauvegarde = null; save(); fillDepot(); renderPoints(); renderRoute(); calculer();
 };
 
 /* ---------------- démarrage ---------------- */

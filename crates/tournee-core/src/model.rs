@@ -13,6 +13,11 @@ pub struct Point {
     pub volume: String,
     pub reference: String,
     pub remarque: String,
+    /// Personne à joindre sur place (gardien, mairie, client…).
+    pub contact: String,
+    pub telephone: String,
+    /// Consignes d'accès : digicode, badge, clé, horaires…
+    pub acces: String,
     pub lat: Option<f64>,
     pub lon: Option<f64>,
     /// Adresse retrouvée par la BAN.
@@ -177,6 +182,11 @@ pub fn fusionner_doublons(points: Vec<Point>) -> Vec<Point> {
             }
             if !p.remarque.is_empty() && !q.remarque.contains(&p.remarque) {
                 q.remarque = [q.remarque.as_str(), p.remarque.as_str()].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join(" ; ");
+            }
+            for (a, b) in [(&mut q.contact, &p.contact), (&mut q.telephone, &p.telephone), (&mut q.acces, &p.acces)] {
+                if a.is_empty() && !b.is_empty() {
+                    *a = b.clone();
+                }
             }
             if q.position().is_none() && p.position().is_some() {
                 q.lat = p.lat;

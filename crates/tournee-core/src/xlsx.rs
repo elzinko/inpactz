@@ -78,7 +78,7 @@ pub fn generer(t: &Tournee) -> Result<Vec<u8>, XlsxError> {
         ("Fait", 6.0), ("Ordre", 7.0), ("Adresse", 34.0), ("Code postal", 11.0), ("Commune", 18.0), ("Flux", 16.0),
         ("Bacs", 6.0), ("Volume", 9.0), ("Référence", 12.0), ("Remarque", 30.0), ("Adresse trouvée", 38.0),
         ("Fiabilité", 10.0), ("Latitude", 11.0), ("Longitude", 11.0), ("Km depuis l'arrêt précédent", 12.0),
-        ("Google Maps", 12.0), ("Fiche source", 22.0),
+        ("Google Maps", 12.0), ("Fiche source", 22.0), ("Contact", 22.0), ("Téléphone", 15.0), ("Accès", 30.0),
     ];
     let r0 = 4u32;
     for (c, (h, w)) in cols.iter().enumerate() {
@@ -199,5 +199,8 @@ fn ligne_point(
         ws.write_number_with_format(r, 14, (k * 10.0).round() / 10.0, f)?;
     }
     ws.write_string_with_format(r, 16, &p.source, f)?;
+    ws.write_string_with_format(r, 17, &p.contact, fw)?;
+    ws.write_string_with_format(r, 18, &p.telephone, f)?;
+    ws.write_string_with_format(r, 19, &p.acces, fw)?;
     Ok(())
 }
