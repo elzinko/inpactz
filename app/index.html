@@ -83,8 +83,8 @@ ol.route small{display:block;color:var(--muted)}
 .depotCard .lbl{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
 .depotCard small{font:.75rem var(--f-mono);color:var(--muted)}
 .depotCard.vide b{color:var(--warn)}
-dialog#cfg{border:1px solid var(--line);border-radius:8px;padding:0;background:var(--surface);color:var(--ink);width:min(560px,calc(100vw - 24px));max-height:calc(100dvh - 24px)}
-dialog#cfg::backdrop{background:#0008}
+dialog#cfg,dialog#veh{border:1px solid var(--line);border-radius:8px;padding:0;background:var(--surface);color:var(--ink);width:min(560px,calc(100vw - 24px));max-height:calc(100dvh - 24px)}
+dialog#cfg::backdrop,dialog#veh::backdrop{background:#0008}
 .cfg{display:flex;flex-direction:column;gap:12px;padding:18px}
 .ac{position:relative}
 .sugg{list-style:none;margin:4px 0 0;padding:0;border:1px solid var(--line);border-radius:4px;background:var(--surface);max-height:260px;overflow:auto}
@@ -100,6 +100,12 @@ details#cfgAvance summary{cursor:pointer;color:var(--muted);font-size:.88rem}
 details#cfgAvance input{margin-top:6px}
 #cfgMap{height:200px;border-radius:4px;border:1px solid var(--line);display:none}
 #cfgMap.on{display:block}
+input[type=number],input[type=url]{font:inherit;font-size:16px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px 10px;width:100%}
+.vehGrille{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.vehCarte{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:.9rem}
+.vehCarte b{font-weight:600}
+.alerte{background:var(--warn-bg);color:var(--warn);border-radius:4px;padding:8px 10px;font-size:.88rem}
+.alerte:empty{display:none}
 .files .vg{width:100%;aspect-ratio:3/4;padding:0;border-radius:3px;overflow:hidden;background:var(--bg);display:grid;place-items:center;font:600 .8rem var(--f-mono);color:var(--muted);border:1px solid var(--line)}
 .files .vg img{width:100%;height:100%;object-fit:cover}
 dialog#vue{width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;padding:0;border:0;background:#000;color:#fff}
@@ -117,7 +123,7 @@ dialog#vue[open]{display:flex;flex-direction:column}
 <div class="wrap">
   <header>
     <div><h1>Tournée PAV <span>Rotation bacs</span></h1>
-    <p class="lead">Déposez vos fiches (PDF, photos ou fichier Excel). Tout est lu et calculé sur cet appareil. Seule la recherche des adresses utilise Internet (Base Adresse Nationale, OpenStreetMap).</p></div>
+    <p class="lead">Déposez vos fiches (PDF, photos ou fichier Excel). Tout est lu et calculé sur cet appareil. Seuls la recherche des adresses et l'itinéraire du camion utilisent Internet (Base Adresse Nationale, OpenStreetMap, Valhalla).</p></div>
     <div class="row"><button id="exemple" class="ghost">Charger un exemple</button><button id="reglages" aria-label="Réglages">⚙ Réglages</button></div>
   </header>
 
@@ -170,7 +176,9 @@ dialog#vue[open]{display:flex;flex-direction:column}
 
   <section>
     <div class="row" style="justify-content:space-between"><h2><span class="n">4</span>Tournée</h2><button class="signal" id="calc">Calculer la tournée</button></div>
+    <div class="vehCarte"><span>🚛 Véhicule :</span><b id="vehResume"></b><button type="button" class="ghost" id="vehMod">Modifier</button></div>
     <span class="status" id="calcSt"></span>
+    <div class="alerte" id="calcAlerte"></div>
     <div class="stats" id="stats"></div>
     <div class="result">
       <div style="display:flex;flex-direction:column;gap:10px;min-width:0">
@@ -183,7 +191,7 @@ dialog#vue[open]{display:flex;flex-direction:column}
       </div>
     </div>
   </section>
-  <p class="hint">Distances estimées à vol d'oiseau × 1,3. Ordre de passage calculé sur l'appareil par le solveur open source vrp-pragmatic (Rust/WebAssembly). Lecture : pdf.js, Tesseract. Adresses : Base Adresse Nationale.</p>
+  <p class="hint">Distances et tracé : moteur de routage open source Valhalla (données OpenStreetMap), profil camion avec hauteur, largeur, longueur et poids. Sans réseau, distances estimées à vol d'oiseau × 1,3. Ordre de passage calculé sur l'appareil par le solveur open source vrp-pragmatic (Rust/WebAssembly). Lecture : pdf.js, Tesseract. Adresses : Base Adresse Nationale.</p>
   <p class="hint" id="moteurSt">Chargement du moteur…</p>
 </div>
 
@@ -221,6 +229,31 @@ dialog#vue[open]{display:flex;flex-direction:column}
     <div class="row" style="justify-content:flex-end">
       <button type="button" class="ghost" id="cfgPlusTard">Plus tard</button>
       <button type="button" class="primary" id="cfgOk" disabled>Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="veh" aria-labelledby="vehTitre">
+  <form method="dialog" class="cfg">
+    <h2 id="vehTitre">Véhicule</h2>
+    <p class="hint">Le calcul de la tournée et le tracé évitent les rues où ce véhicule ne passe pas : ponts et passages trop bas, rues trop étroites, limites de poids ou de longueur. Ces restrictions viennent d'OpenStreetMap : vérifiez toujours la signalisation.</p>
+    <label class="f">Nom<input type="text" id="vehNom" placeholder="Camion 20 m³"></label>
+    <div class="vehGrille">
+      <label class="f">Hauteur (m)<input type="number" id="vehHauteur" min="1" max="5" step="0.01" inputmode="decimal"></label>
+      <label class="f">Largeur (m)<input type="number" id="vehLargeur" min="1" max="3" step="0.01" inputmode="decimal"></label>
+      <label class="f">Longueur (m)<input type="number" id="vehLongueur" min="2" max="25" step="0.1" inputmode="decimal"></label>
+      <label class="f">Poids total (t)<input type="number" id="vehPoids" min="1" max="60" step="0.5" inputmode="decimal"></label>
+      <label class="f">Volume (m³)<input type="number" id="vehVolume" min="1" max="100" step="1" inputmode="decimal"></label>
+    </div>
+    <details id="vehAvance">
+      <summary>Serveur de routage</summary>
+      <p class="hint">Par défaut, le serveur public Valhalla de FOSSGIS (OpenStreetMap, sans clé, usage raisonnable). Vous pourrez mettre ici l'adresse de votre propre serveur Valhalla.</p>
+      <input type="url" id="vehServeur" placeholder="https://valhalla1.openstreetmap.de">
+    </details>
+    <span class="status" id="vehSt"></span>
+    <div class="row" style="justify-content:space-between">
+      <button type="button" class="ghost" id="vehDefaut">Valeurs par défaut</button>
+      <span class="row"><button type="button" class="ghost" id="vehAnnuler">Annuler</button><button type="button" class="primary" id="vehOk">Enregistrer</button></span>
     </div>
   </form>
 </dialog>

@@ -92,6 +92,44 @@ pub struct Tournee {
     pub methode: String,
     #[serde(default)]
     pub date: String,
+    /// Minutes de conduite de chaque tronçon (connues seulement avec le moteur de routage).
+    #[serde(default)]
+    pub troncons_min: Vec<f64>,
+    #[serde(default)]
+    pub total_min: Option<f64>,
+    /// "route" : distances routières du camion ; "estimation" : vol d'oiseau × 1,3.
+    #[serde(default)]
+    pub distances: String,
+    /// Arrêts que le camion ne peut pas rejoindre par la route (hauteur, poids, sens interdit…).
+    #[serde(default)]
+    pub inaccessibles: Vec<String>,
+    /// Description du véhicule utilisé pour le calcul (« Camion 20 m³ · 3,40 m de haut… »).
+    #[serde(default)]
+    pub vehicule: String,
+}
+
+/// Matrice de distances routières calculée par un moteur de routage (Valhalla, profil camion).
+/// `ids[0]` est le dépôt (« depot »), les autres sont les `id` des points.
+/// `distances` en mètres, `durees` en secondes ; `None` : pas de trajet possible pour ce véhicule.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Matrice {
+    pub ids: Vec<String>,
+    pub distances: Vec<Vec<Option<f64>>>,
+    pub durees: Vec<Vec<Option<f64>>>,
+}
+
+impl Matrice {
+    fn index(&self, id: &str) -> Option<usize> {
+        self.ids.iter().position(|x| x == id)
+    }
+    /// (mètres, secondes) de `a` vers `b`. `Some(None)` : les deux sont connus mais sans trajet.
+    pub fn trajet(&self, a: &str, b: &str) -> Option<Option<(f64, f64)>> {
+        let (i, j) = (self.index(a)?, self.index(b)?);
+        let d = *self.distances.get(i)?.get(j)?;
+        let t = self.durees.get(i).and_then(|r| r.get(j)).copied().flatten();
+        Some(d.map(|d| (d, t.unwrap_or(d / 1000.0 * 120.0))))
+    }
 }
 
 /// Facteur appliqué à la distance à vol d'oiseau pour estimer la distance routière.

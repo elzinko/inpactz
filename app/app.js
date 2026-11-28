@@ -1,9 +1,11 @@
 // Tournée PAV : appli tout embarquée.
 // Le moteur Rust (pkg/, WebAssembly) lit les fiches, calcule la tournée et produit l'Excel.
 // pdf.js lit les PDF, Tesseract.js fait l'OCR des photos : tout tourne sur l'appareil.
-// Seul le placement des adresses interroge la Base Adresse Nationale (service public, sans clé).
+// Le placement des adresses interroge la Base Adresse Nationale (service public, sans clé).
+// Les distances routières et le tracé du camion viennent de Valhalla (open source, sans clé).
 
 import init, * as moteur from "./pkg/tournee_wasm.js";
+import * as routage from "./routage.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -12,17 +14,26 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 const SCORE_FIABLE = 0.6;
 const GEOCODEURS = ["https://data.geopf.fr/geocodage/search", "https://api-adresse.data.gouv.fr/search/"];
 
-let S = { depot: { adresse: "", lat: null, lon: null }, date: "", points: [], tournee: null };
+let S = { depot: { adresse: "", lat: null, lon: null }, date: "", points: [], tournee: null, vehicule: { ...routage.VEHICULE_DEFAUT }, serveurRoutage: "" };
+// Dernière matrice routière calculée (gardée à part : elle peut être grosse).
+let M = { cle: "", m: null };
+function chargerMatrice() { try { const x = JSON.parse(localStorage.getItem(KEY + "-matrice") || "null"); if (x && x.cle) M = x; } catch (e) {} }
+function garderMatrice() { try { localStorage.setItem(KEY + "-matrice", JSON.stringify(M)); } catch (e) {} }
 let fichiers = [];
 let pret = false;
 
 /* ---------------- état ---------------- */
-function load() { try { const s = JSON.parse(localStorage.getItem(KEY) || "null"); if (s) S = Object.assign(S, s); } catch (e) {} }
+function load() {
+  try { const s = JSON.parse(localStorage.getItem(KEY) || "null"); if (s) S = Object.assign(S, s); } catch (e) {}
+  S.vehicule = { ...routage.VEHICULE_DEFAUT, ...(S.vehicule || {}) };
+  chargerMatrice();
+}
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
 function parseGps(s) { const m = String(s || "").match(/(-?\d{1,2}[.,]\d+)\s*[,; ]\s*(-?\d{1,3}[.,]\d+)/); return m ? { lat: +m[1].replace(",", "."), lon: +m[2].replace(",", ".") } : null; }
 const pos = (p) => p && typeof p.lat === "number" && typeof p.lon === "number";
 const fmt = (p) => (pos(p) ? p.lat.toFixed(5) + ", " + p.lon.toFixed(5) : "");
 const km = (x) => x.toFixed(1).replace(".", ",");
+const dureeTxt = (min) => { const m = Math.round(min); return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")}` : `${m} min`; };
 function depotCourant() { return { adresse: S.depot.adresse || fmt(S.depot), lat: S.depot.lat, lon: S.depot.lon }; }
 function statut(id, txt, err) { $(id).textContent = txt; $(id).className = "status" + (err ? " err" : ""); }
 
@@ -388,6 +399,31 @@ $("depotMod").onclick = () => ouvrirReglages(false);
 $("reglages").onclick = () => ouvrirReglages(false);
 $("date").onchange = (e) => { S.date = e.target.value; save(); };
 
+/* ---------------- véhicule ---------------- */
+const CHAMPS_VEH = { vehHauteur: "hauteur", vehLargeur: "largeur", vehLongueur: "longueur", vehPoids: "poids", vehVolume: "volume" };
+function remplirVehicule(v) {
+  $("vehNom").value = v.nom || "";
+  for (const [id, k] of Object.entries(CHAMPS_VEH)) $(id).value = v[k];
+  $("vehServeur").value = S.serveurRoutage || "";
+}
+function afficherVehicule() { $("vehResume").textContent = routage.resumeVehicule(S.vehicule); }
+$("vehMod").onclick = () => { remplirVehicule(S.vehicule); statut("vehSt", ""); $("veh").showModal(); };
+$("vehAnnuler").onclick = () => $("veh").close();
+$("vehDefaut").onclick = () => { remplirVehicule(routage.VEHICULE_DEFAUT); $("vehServeur").value = ""; };
+$("vehOk").onclick = () => {
+  const v = { nom: $("vehNom").value.trim() || routage.VEHICULE_DEFAUT.nom };
+  for (const [id, k] of Object.entries(CHAMPS_VEH)) {
+    const x = parseFloat(String($(id).value).replace(",", "."));
+    if (!(x > 0)) { statut("vehSt", "Indiquez une valeur pour « " + $(id).parentElement.firstChild.textContent.trim() + " ».", true); return; }
+    v[k] = x;
+  }
+  const serveur = $("vehServeur").value.trim();
+  if (serveur && !/^https:\/\//.test(serveur)) { statut("vehSt", "L'adresse du serveur doit commencer par https://", true); return; }
+  const change = JSON.stringify(v) !== JSON.stringify(S.vehicule) || serveur !== (S.serveurRoutage || "");
+  S.vehicule = v; S.serveurRoutage = serveur; afficherVehicule(); $("veh").close();
+  if (change) { S.tournee = null; save(); renderRoute(); if (S.points.length) calculer(); }
+};
+
 /* ---------------- fichiers ---------------- */
 /* Les fichiers déposés sont gardés sur l'appareil (IndexedDB) avec leur état :
    si le téléphone se met en veille ou si le navigateur recharge la page,
@@ -635,31 +671,79 @@ const icone = (txt, cls) => L.divIcon({ className: "", html: `<div class="mk ${c
 
 async function calculer() { return sansVeille(calculerSansVeille); }
 async function calculerSansVeille() {
-  statut("calcSt", "Calcul…");
+  statut("calcSt", "Calcul…"); $("calcAlerte").textContent = "";
   try {
     if (S.points.some((p) => p.actif !== false && !pos(p) && p.origine !== "introuvable") || !pos(depotCourant())) await placer();
     const d = depotCourant();
     if (!pos(d)) throw new Error("Le dépôt n'a pas de position : vérifiez son adresse ou collez ses coordonnées GPS.");
+    const m = await matriceCamion(d);
+    statut("calcSt", "Recherche du meilleur ordre de passage…");
     await new Promise((r) => setTimeout(r, 20)); // laisse l'écran se mettre à jour
     const n = S.points.filter((p) => p.actif !== false && pos(p)).length;
     const generations = n > 150 ? 200 : n > 60 ? 400 : 800;
-    S.tournee = JSON.parse(moteur.calculer(JSON.stringify(d), JSON.stringify(S.points), S.date || "", generations));
+    S.tournee = JSON.parse(moteur.calculer(JSON.stringify(d), JSON.stringify(S.points), S.date || "", generations, m ? JSON.stringify(m) : ""));
+    S.tournee.vehicule = routage.resumeVehicule(S.vehicule);
     statut("calcSt", S.tournee.non_places.length ? S.tournee.non_places.length + " point(s) sans position laissé(s) de côté." : "");
     save(); renderRoute();
+    await tracer();
   } catch (e) { statut("calcSt", e.message || String(e), true); }
+}
+/** Matrice routière du camion entre le dépôt et les points actifs (null si le serveur ne répond pas). */
+async function matriceCamion(d) {
+  const lieux = [{ id: "depot", lat: d.lat, lon: d.lon }, ...S.points.filter((p) => p.actif !== false && pos(p)).map((p) => ({ id: p.id, lat: p.lat, lon: p.lon }))];
+  if (lieux.length < 2) return null;
+  const cle = routage.cleMatrice(S.serveurRoutage, S.vehicule, lieux);
+  if (M.cle === cle && M.m) return M.m;
+  try {
+    statut("calcSt", "Distances routières du camion…");
+    const m = await routage.matrice(S.serveurRoutage, S.vehicule, lieux, (k, n) => statut("calcSt", `Distances routières du camion… ${k}/${n}`));
+    M = { cle, m }; garderMatrice();
+    return m;
+  } catch (e) {
+    $("calcAlerte").textContent = `Le serveur de routage ne répond pas (${e.message}) : distances estimées à vol d'oiseau, sans tenir compte de la hauteur du camion. Réessayez avec du réseau.`;
+    return null;
+  }
+}
+/** Récupère le tracé exact sur la route, dans l'ordre de passage. */
+let traceEnCours = null;
+async function tracer() {
+  const t = S.tournee; if (!t || !t.arrets.length) return;
+  if (traceEnCours) traceEnCours.abort();
+  const ctrl = (traceEnCours = new AbortController());
+  const seq = [t.depot, ...t.arrets, t.depot].map((p) => ({ lat: p.lat, lon: p.lon }));
+  try {
+    const st = $("calcSt").textContent;
+    statut("calcSt", "Tracé de l'itinéraire du camion…");
+    const legs = await routage.trace(S.serveurRoutage, S.vehicule, seq, ctrl.signal);
+    if (S.tournee !== t) return;
+    t.trace = legs; save(); renderRoute(); statut("calcSt", st);
+  } catch (e) {
+    if (ctrl.signal.aborted) return;
+    statut("calcSt", "Tracé sur la route indisponible (" + e.message + ") : lignes droites affichées.", true);
+  } finally { if (traceEnCours === ctrl) traceEnCours = null; }
 }
 $("calc").onclick = calculer;
 function deplacer(i, dir) {
   const t = S.tournee; const a = [...t.arrets]; const j = i + dir; if (j < 0 || j >= a.length) return;
   [a[i], a[j]] = [a[j], a[i]];
-  try { S.tournee = JSON.parse(moteur.recalculer(JSON.stringify(t.depot), JSON.stringify(a), JSON.stringify(t.non_places), S.date || "")); save(); renderRoute(); }
+  try {
+    const m = M.m && t.distances !== "estimation" ? JSON.stringify(M.m) : "";
+    S.tournee = JSON.parse(moteur.recalculer(JSON.stringify(t.depot), JSON.stringify(a), JSON.stringify(t.non_places), S.date || "", m));
+    S.tournee.vehicule = t.vehicule;
+    save(); renderRoute(); tracer();
+  }
   catch (e) { statut("calcSt", e.message, true); }
 }
 function renderRoute() {
   const t = S.tournee; const ol = $("route"); layer && layer.clearLayers(); $("liens").innerHTML = ""; $("xlsx").disabled = !t;
-  if (!t) { $("stats").innerHTML = ""; ol.innerHTML = `<li class="hint" style="display:block">Calculez la tournée pour obtenir l'ordre de passage.</li>`; return; }
+  if (!t) { $("stats").innerHTML = ""; $("calcAlerte").textContent = ""; ol.innerHTML = `<li class="hint" style="display:block">Calculez la tournée pour obtenir l'ordre de passage.</li>`; return; }
   const bacs = t.arrets.reduce((s, p) => s + (p.nb_bacs || 0), 0);
-  $("stats").innerHTML = `<div class="stat"><b>${t.arrets.length}</b><span>arrêts</span></div><div class="stat"><b>${bacs || "–"}</b><span>bacs</span></div><div class="stat"><b>≈ ${km(t.total_km)} km</b><span>distance estimée</span></div>`;
+  const route = t.distances === "route";
+  const duree = t.total_min != null ? `<div class="stat"><b>${dureeTxt(t.total_min)}</b><span>de conduite</span></div>` : "";
+  $("stats").innerHTML = `<div class="stat"><b>${t.arrets.length}</b><span>arrêts</span></div><div class="stat"><b>${bacs || "–"}</b><span>bacs</span></div><div class="stat"><b>${route ? "" : "≈ "}${km(t.total_km)} km</b><span>${route ? "par la route, en camion" : "distance estimée"}</span></div>${duree}`;
+  const inacc = (t.inaccessibles || []).map((id) => t.arrets.find((p) => p.id === id)).filter(Boolean);
+  if (inacc.length) $("calcAlerte").textContent = `Le camion (${t.vehicule || routage.resumeVehicule(S.vehicule)}) ne peut pas rejoindre ${inacc.length > 1 ? "ces arrêts" : "cet arrêt"} par la route : ${inacc.map((p) => [p.adresse, p.commune].filter(Boolean).join(", ")).join(" ; ")}. Vérifiez la position ou l'accès.`;
+  else if (t.distances === "mixte") $("calcAlerte").textContent = "Certaines distances sont estimées à vol d'oiseau.";
   ol.innerHTML = "";
   const li = (k, titre, sous, cls) => {
     const e = document.createElement("li"); if (cls) e.className = cls;
@@ -671,19 +755,27 @@ function renderRoute() {
   t.arrets.forEach((p, i) => {
     const e = li(i + 1, [p.adresse, p.code_postal, p.commune].filter(Boolean).join(", "), [
       [p.flux, p.nb_bacs ? p.nb_bacs + " bac(s)" : "", p.reference].filter(Boolean).join(" · "),
-      [p.remarque, "+" + km(t.troncons_km[i]) + " km"].filter(Boolean).join(" · "),
+      [p.remarque, "+" + km(t.troncons_km[i]) + " km" + (t.troncons_min && t.troncons_min[i] != null ? " · " + dureeTxt(t.troncons_min[i]) : "")].filter(Boolean).join(" · "),
     ]);
     e.querySelector(".mv").innerHTML = `<button class="ghost" ${i === 0 ? "disabled" : ""} aria-label="Monter">▲</button><button class="ghost" ${i === t.arrets.length - 1 ? "disabled" : ""} aria-label="Descendre">▼</button>`;
     const [u, d] = e.querySelectorAll(".mv button"); u.onclick = () => deplacer(i, -1); d.onclick = () => deplacer(i, 1);
   });
   li("D", t.depot.adresse || "Dépôt", ["Retour · +" + km(t.troncons_km[t.troncons_km.length - 1]) + " km"], "depot");
+  if (t.liens.length) { const h = document.createElement("p"); h.className = "hint"; h.textContent = "Attention : Google Maps calcule pour une voiture et ne connaît pas la hauteur du camion. Suivez le tracé ci-dessus près des ponts."; $("liens").appendChild(h); }
   for (const [lib, url] of t.liens) { const a = document.createElement("a"); a.className = "btn primary"; a.href = url; a.target = "_blank"; a.rel = "noopener"; a.textContent = "Google Maps : " + lib; $("liens").appendChild(a); }
   if (map) {
     const seq = [[t.depot.lat, t.depot.lon], ...t.arrets.map((p) => [p.lat, p.lon]), [t.depot.lat, t.depot.lon]];
-    L.polyline(seq, { color: "#0f6b4f", weight: 4, opacity: 0.85 }).addTo(layer);
+    let cadre = seq;
+    if (t.trace && t.trace.length) {
+      // Tracé exact sur la route ; un trajet impossible pour le camion reste en pointillés rouges.
+      for (const l of t.trace) L.polyline(l.shape, l.route ? { color: "#0f6b4f", weight: 5, opacity: 0.85 } : { color: "#b42318", weight: 3, dashArray: "6 6" }).addTo(layer);
+      cadre = seq.concat(t.trace.flatMap((l) => l.shape));
+    } else {
+      L.polyline(seq, { color: "#0f6b4f", weight: 3, opacity: 0.6, dashArray: "6 8" }).addTo(layer);
+    }
     t.arrets.forEach((p, i) => L.marker([p.lat, p.lon], { icon: icone(i + 1, p.origine === "ban" && p.score < SCORE_FIABLE ? "weak" : "") }).bindPopup(esc([p.adresse, p.commune].filter(Boolean).join(", "))).addTo(layer));
     L.marker([t.depot.lat, t.depot.lon], { icon: icone("D", "dep") }).bindPopup("Dépôt").addTo(layer);
-    map.fitBounds(seq, { padding: [24, 24] });
+    map.fitBounds(cadre, { padding: [24, 24] });
   }
 }
 $("xlsx").onclick = () => {
@@ -711,7 +803,7 @@ $("exemple").onclick = () => {
 };
 
 /* ---------------- démarrage ---------------- */
-load(); fillDepot(); renderFiles(); renderPoints();
+load(); fillDepot(); afficherVehicule(); renderFiles(); renderPoints();
 if (!S.configure && !S.depot.adresse && !pos(S.depot)) ouvrirReglages(true);
 try { initMap(); } catch (e) { $("map").textContent = "Carte indisponible"; }
 renderRoute();
