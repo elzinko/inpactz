@@ -101,4 +101,6 @@ python3 -m http.server -d app   # test local sur http://localhost:8000
 
 Vercel publie directement le dossier `app/` (voir `vercel.json`), sans étape de compilation : pensez à lancer `scripts/build-app.sh` et à committer `app/pkg` après une modification du moteur. La CI vérifie que `app/pkg` est à jour.
 
+Pour déployer depuis le Mac : `scripts/deploy-vercel.sh` (prévisualisation) ou `scripts/deploy-vercel.sh --prod`. Le jeton Vercel vient du trousseau macOS via `ezk-secret` (Touch ID) ; `secrets.yaml` liste les clés attendues, jamais leurs valeurs.
+
 Bibliothèques embarquées dans `app/vendor` : pdf.js 3.11.174 (Apache 2.0), Tesseract.js 5.1.1 + modèle français (Apache 2.0), Leaflet 1.9.4 (BSD-2).
